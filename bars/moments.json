@@ -1,0 +1,19 @@
+[
+  { "name": "first-view", "meaning": "The page or a section comes into view, and its content enters and settles." },
+  { "name": "idle-stretch", "meaning": "The visitor does nothing, and a steady loop keeps the page alive." },
+  { "name": "hover-across-options", "meaning": "The pointer moves across a set of choices, and the page marks the one under it." },
+  { "name": "scroll-through-chapters", "meaning": "Scrolling moves the page through set stages in order, and scrolling back reverses them." },
+  { "name": "scroll-speed", "meaning": "The page shows how fast the visitor scrolls, then settles when the scroll stops." },
+  { "name": "travel-into-a-scene", "meaning": "The view moves deep into one scene, or pulls back to show all of it." },
+  { "name": "browse-a-row", "meaning": "The visitor moves a row of items sideways to look through them." },
+  { "name": "drag-and-release", "meaning": "The visitor drags a part of the page, it follows the hand, and on release it springs back, coasts or settles." },
+  { "name": "tilt-the-device", "meaning": "Device tilt moves a part of the page, and it settles when the device holds still." },
+  { "name": "pick-an-item", "meaning": "The visitor picks one item, and the item flies to its place or the view flies to it." },
+  { "name": "switch-a-mode", "meaning": "The visitor changes a mode or a choice, and the scene moves from the old state to the new one." },
+  { "name": "step-to-the-next", "meaning": "The visitor moves on one step, and the old content leaves as the new content arrives." },
+  { "name": "remove-an-item", "meaning": "An item leaves the page for good, and the space it held clears." },
+  { "name": "open-and-close", "meaning": "One tap opens a set of pieces, and a second tap closes them the same way back." },
+  { "name": "reveal-a-result", "meaning": "One action starts a timed sequence of steps, and the result arrives last." },
+  { "name": "count-up", "meaning": "A number climbs to its value, and the visuals linked to it move with it." },
+  { "name": "celebrate", "meaning": "A success or a finished action gets a short burst of motion." }
+]

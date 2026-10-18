@@ -1,4 +1,5 @@
 import { DEFAULTS } from "./defaults.ts";
+import { KINDS, KNOB_FIELDS, knobProblems } from "./kinds.ts";
 import { MOVES } from "./types.ts";
 
 export const LIMITS = {
@@ -22,7 +23,7 @@ function inRange(errs: string[], path: string, v: unknown, [lo, hi]: readonly [n
 const NAME_RULE = "name must be lowercase letters, digits and dashes";
 const MOVE_KEYS = ["visualDuration", "bounce", "amount", "reduced"] as const;
 const FEEL_KEYS = ["extends", "describe", "stagger", "moves"] as const;
-const TOP_KEYS = ["version", "reducedFade", "feels", "use"] as const;
+const TOP_KEYS = ["version", "reducedFade", "feels", "use", "kinds"] as const;
 const isMove = (m: string): boolean => (MOVES as readonly string[]).includes(m);
 const unknownMove = (path: string): string => `${path}: unknown move (allowed: ${MOVES.join(", ")})`;
 
@@ -40,6 +41,47 @@ function typeOf(errs: string[], path: string, v: unknown, type: "string" | "numb
   if (typeof v !== type) errs.push(`${path}: must be a ${type}, got ${JSON.stringify(v)}`);
 }
 
+const allowedKnobs = (kind: string): string[] => Object.keys(KNOB_FIELDS).filter((f) => f.startsWith(`${kind}.`)).map((f) => f.slice(kind.length + 1));
+
+/**
+ * Walks a kinds block and reports unknown kinds and knobs, and any problem `check` finds in a known knob value.
+ * `check` gets the full path and the "kind.field" key.
+ */
+function walkKinds(errs: string[], kinds: unknown, check: (path: string, field: string, value: unknown) => string[]): void {
+  if (!isObj(kinds)) {
+    errs.push("kinds: must be an object");
+    return;
+  }
+  for (const [kind, block] of Object.entries(kinds)) {
+    const kp = `kinds.${kind}`;
+    if (!(KINDS as readonly string[]).includes(kind)) {
+      errs.push(`${kp}: unknown kind`);
+      continue;
+    }
+    if (!isObj(block)) {
+      errs.push(`${kp}: must be an object`);
+      continue;
+    }
+    for (const [knob, value] of Object.entries(block)) {
+      const field = `${kind}.${knob}`;
+      if (!Object.hasOwn(KNOB_FIELDS, field)) errs.push(`${kp}.${knob}: unknown knob (allowed: ${allowedKnobs(kind).join(", ") || "none"})`);
+      else errs.push(...check(`${kp}.${knob}`, field, value));
+    }
+  }
+}
+
+/** The shape and types of one knob value, without its ranges. */
+function knobShape(path: string, field: string, value: unknown): string[] {
+  const errs: string[] = [];
+  if (KNOB_FIELDS[field]!.shape === "number") typeOf(errs, path, value, "number");
+  else if (!isObj(value)) errs.push(`${path}: must be an object, got ${JSON.stringify(value)}`);
+  else {
+    unknownKeys(errs, path, value, ["visualDuration", "bounce"]);
+    for (const k of ["visualDuration", "bounce"]) if (value[k] !== undefined) typeOf(errs, `${path}.${k}`, value[k], "number");
+  }
+  return errs;
+}
+
 /**
  * Returns every problem in a project's overrides (the contents of motion.json). An empty list means the shape is right.
  * It checks keys, object shapes and value types. It does not check ranges or whether a name exists: validate() does that on the merged result.
@@ -48,7 +90,11 @@ export function validateOverrides(o: unknown): string[] {
   const errs: string[] = [];
   if (!isObj(o)) return ["config: must be an object"];
   unknownKeys(errs, "", o, TOP_KEYS);
-  if (o.version !== undefined && o.version !== 1) errs.push(`version: expected 1, got ${JSON.stringify(o.version)}`);
+  if (o.version !== undefined && o.version !== 1 && o.version !== 2) errs.push(`version: expected 1 or 2, got ${JSON.stringify(o.version)}`);
+  if (o.kinds !== undefined) {
+    if (o.version !== 2) errs.push("kinds: needs version 2");
+    walkKinds(errs, o.kinds, knobShape);
+  }
   if (o.reducedFade !== undefined) typeOf(errs, "reducedFade", o.reducedFade, "number");
 
   const feelNames = new Set(Object.keys(DEFAULTS.feels));
@@ -106,7 +152,11 @@ export function validateOverrides(o: unknown): string[] {
 export function validate(cfg: unknown): string[] {
   const errs: string[] = [];
   if (!isObj(cfg)) return ["config: must be an object"];
-  if (cfg.version !== 1) errs.push(`version: expected 1, got ${JSON.stringify(cfg.version)}`);
+  if (cfg.version !== 1 && cfg.version !== 2) errs.push(`version: expected 1 or 2, got ${JSON.stringify(cfg.version)}`);
+  if (cfg.kinds !== undefined) {
+    if (cfg.version !== 2) errs.push("kinds: needs version 2");
+    walkKinds(errs, cfg.kinds, knobProblems);
+  }
   inRange(errs, "reducedFade", cfg.reducedFade, LIMITS.reducedFade);
   const feels = cfg.feels;
   if (!isObj(feels)) return [...errs, "feels: missing"];

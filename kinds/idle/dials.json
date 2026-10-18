@@ -1,0 +1,11 @@
+[
+  {
+    "knob": "idle.period",
+    "value": 4.0,
+    "unit": "s",
+    "bar": "31-breath-pacer",
+    "path": "reso.loopS",
+    "row": "Resonance",
+    "base": true
+  }
+]

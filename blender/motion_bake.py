@@ -13,8 +13,8 @@ MIN_DAMPING = 0.05
 def load_resolved(path):
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
-    if cfg.get("version") != 1:
-        raise ValueError(f"{path}: expected a resolved motion config with version 1")
+    if cfg.get("version") not in (1, 2):
+        raise ValueError(f"{path}: expected a resolved motion config with version 1 or 2")
     return cfg
 
 

@@ -1,0 +1,10 @@
+{
+  "fps": 60,
+  "input": { "kind": "none", "samples": [] },
+  "channels": [
+    { "name": "dotY", "unit": "px", "read": "y", "selectors": [".dot"], "tolerance": 0.5, "rebuildError": 0.1 },
+    { "name": "opacity", "unit": "opacity", "read": "o", "selectors": [".dot"], "tolerance": 0.01, "rebuildError": 0.002 }
+  ],
+  "samples": [[0, 0, 1], [16.666666666666668, 0, 1]],
+  "events": {}
+}

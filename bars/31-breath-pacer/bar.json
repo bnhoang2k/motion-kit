@@ -1,0 +1,31 @@
+{
+  "slug": "31-breath-pacer",
+  "title": "Breath pacer",
+  "kinds": ["idle"],
+  "moments": ["idle-stretch"],
+  "rung": [2, 3],
+  "fits": "A screen that should stay alive while nobody touches it: line drawings with dots at constant speed, a slow breath, and a quick crossfade between drawings.",
+  "wrongFor": "Motion the visitor drives by hand, or motion that must land and rest; this loop never rests while it is on screen.",
+  "feel": "Slow and even: the dots run at constant speed with no rest and no landing, and the breath is a disc hollow that grows and shrinks on straight ramps over a 4.0 s loop. A mode swap takes about 0.38 s: a 0.985 scale dip and a small title nudge, then a crossfade, with no overshoot.",
+  "dials": [{ "path": "reso.loopS", "value": 4.0, "unit": "s", "knob": "idle.period", "row": "Resonance" }],
+  "assetContract": {
+    "drawing": {
+      "draw": "DRAW[i](tm, alpha) on #art, in u units from the drawing center; exactly 5 modes, one drawing each in MODES and DRAW, because the fixed swap schedule (scheduleCuts) names modes 1 to 4",
+      "aspect": "1:1",
+      "view": "front",
+      "facing": "none",
+      "background": "cutout"
+    }
+  },
+  "clock": "__seek",
+  "trace": [
+    { "name": "dotA", "tolerance": 0.96 },
+    { "name": "hollow", "tolerance": 5.12 },
+    { "name": "arc", "tolerance": 0.9 },
+    { "name": "title", "tolerance": 0.56 },
+    { "name": "scale", "tolerance": 0.002 }
+  ],
+  "faults": [
+    { "name": "fast dots", "find": "dotSpeedU: 162,", "replace": "dotSpeedU: 170," }
+  ]
+}

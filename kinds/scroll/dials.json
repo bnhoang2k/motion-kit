@@ -1,0 +1,24 @@
+[
+  {
+    "knob": "scroll.smooth",
+    "value": 0.166666666667,
+    "unit": "s",
+    "bar": "04-scale-as-camera",
+    "path": ["lambda"],
+    "from": { "lambda": 6.0 },
+    "convert": "inverse",
+    "row": "Z1",
+    "base": true
+  },
+  {
+    "knob": "scroll.maxStep",
+    "value": 0.05,
+    "unit": "s",
+    "bar": "04-scale-as-camera",
+    "path": ["maxStepMs"],
+    "from": { "maxStepMs": 50 },
+    "convert": "msToS",
+    "row": "Z1",
+    "base": true
+  }
+]

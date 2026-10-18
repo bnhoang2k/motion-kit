@@ -1,6 +1,6 @@
 {
   "name": "motion-kit",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "One set of motion numbers for Motion, three.js and Blender.",
   "private": true,
   "type": "module",
@@ -17,21 +17,43 @@
     "./three": { "types": "./dist/src/three/index.d.ts", "default": "./dist/src/three/index.js" },
     "./lab": { "types": "./dist/lab/moments/types.d.ts" }
   },
-  "files": ["dist", "blender/*.py", "!blender/test_*.py"],
+  "files": [
+    "dist",
+    "AGENTS.md",
+    "blender/*.py",
+    "!blender/test_*.py",
+    "bars/*/index.html",
+    "bars/*/bar.json",
+    "bars/*/notes.md",
+    "bars/*/trace.json",
+    "bars/*/fonts/*",
+    "bars/INDEX.md",
+    "bars/moments.json",
+    "kinds/*/rules.md",
+    "kinds/*/dials.json"
+  ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node scripts/copy-lab-assets.mjs",
     "test": "vitest run",
     "test:py": "python3 -m unittest discover -s blender -p 'test_*.py'",
     "typecheck": "tsc -p tsconfig.json",
-    "bake:sample": "node scripts/bake-sample.mjs"
+    "bake:sample": "node scripts/bake-sample.mjs",
+    "gen:knobs": "node scripts/gen-knob-values.mjs",
+    "gen:bars": "node scripts/gen-bars-index.mjs",
+    "test:bars": "vitest run --config vitest.bars.config.ts"
   },
-  "peerDependencies": { "motion": "^14.1.0", "three": "^0.186.0" },
-  "peerDependenciesMeta": { "motion": { "optional": true }, "three": { "optional": true } },
+  "peerDependencies": { "motion": "^14.1.0", "playwright": "^1.64.0", "three": "^0.186.0" },
+  "peerDependenciesMeta": {
+    "motion": { "optional": true },
+    "playwright": { "optional": true },
+    "three": { "optional": true }
+  },
   "dependencies": { "vite": "8.3.4" },
   "devDependencies": {
     "@types/node": "26.6.5",
     "@types/three": "0.186.0",
     "motion": "14.1.0",
+    "playwright": "1.64.1",
     "three": "0.186.1",
     "typescript": "6.0.3",
     "vitest": "5.0.3"

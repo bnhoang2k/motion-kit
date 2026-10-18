@@ -1,13 +1,16 @@
+import json
 import math
+import os
+import tempfile
 import unittest
 
-from motion_bake import bake_points, move_for, settle_time, spring_offset
+from motion_bake import bake_points, load_resolved, move_for, settle_time, spring_offset
 
 CFG = {
     "version": 1,
     "reducedFade": 0.15,
     "feels": {"whimsical": {"describe": "", "stagger": 0.065, "moves": {"move": {"visualDuration": 0.48, "bounce": 0.35, "reduced": "fade"}}}},
-    "use": {"guest": "whimsical"},
+    "use": {"dialog": "whimsical"},
 }
 
 
@@ -16,11 +19,34 @@ class MoveFor(unittest.TestCase):
         self.assertEqual(move_for(CFG, "whimsical", "move", True), {"visualDuration": 0.48, "bounce": 0.35})
 
     def test_no_touch_forces_bounce_zero(self):
-        self.assertEqual(move_for(CFG, "guest", "move", False)["bounce"], 0.0)
+        self.assertEqual(move_for(CFG, "dialog", "move", False)["bounce"], 0.0)
 
     def test_unknown_feel(self):
         with self.assertRaisesRegex(KeyError, 'unknown feel or surface "nope"'):
             move_for(CFG, "nope", "move", True)
+
+
+class VersionTwo(unittest.TestCase):
+    def test_v2_with_kinds_bakes_like_v1(self):
+        v2 = {**CFG, "version": 2, "kinds": {"idle": {"period": 60}, "live": {"release": {"visualDuration": 0.5, "bounce": 0.2}}}}
+        with tempfile.TemporaryDirectory() as d:
+            paths = {}
+            for name, cfg in (("v1", CFG), ("v2", v2)):
+                paths[name] = os.path.join(d, f"{name}.json")
+                with open(paths[name], "w", encoding="utf-8") as f:
+                    json.dump(cfg, f)
+            a, b = load_resolved(paths["v1"]), load_resolved(paths["v2"])
+        self.assertEqual(move_for(a, "dialog", "move", True), move_for(b, "dialog", "move", True))
+        m = move_for(b, "dialog", "move", True)
+        self.assertEqual(bake_points(0.0, 1.0, m, fps=30), bake_points(0.0, 1.0, move_for(a, "dialog", "move", True), fps=30))
+
+    def test_other_versions_still_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "c.json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({**CFG, "version": 3}, f)
+            with self.assertRaisesRegex(ValueError, "version 1 or 2"):
+                load_resolved(p)
 
 
 class Spring(unittest.TestCase):

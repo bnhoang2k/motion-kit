@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="bar-wheel">
+<title>bar: bar-wheel</title>
+<style>body { margin: 0; height: 3000px } #bar, #far { position: fixed; left: 0; top: 340px; width: 40px; height: 40px; background: #333 } #far { top: 400px; background: #999 }</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="far"></div>
+<script>
+// A copied scroll bar that smooths the wheel itself: a wheel tick moves the scroll target, the
+// smoothed position chases it and the page scrolls the window there. A scroll the page did not
+// make (a key, the scrollbar, or a script setting the position) is followed at once, with no
+// smoothing. A far layer moves at a third of the rate; under reduced motion it steps, one still
+// state per 600 px of scroll. Under ?seek the target comes from window.__input samples [ms, target].
+const MOTION = {
+  lambda: 6,        // per second
+  maxStepMs: 50,    // the live loop caps one time step
+  restPx: 0.01,     // at rest inside this distance
+  farStepPx: 600,   // under reduced motion, the far layer holds one state per this many px
+};
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const seekMode = new URLSearchParams(location.search).has("seek");
+const bar = document.getElementById("bar"), far = document.getElementById("far");
+let cur = 0, target = 0, last = 0, raf = 0, wrote = 0;
+function follow(dt) {
+  if (reduced) { cur = target; return; }
+  cur += (target - cur) * (1 - Math.exp(-MOTION.lambda * dt / 1000));
+  if (Math.abs(target - cur) < MOTION.restPx) cur = target;
+}
+const farAt = (y) => (reduced ? MOTION.farStepPx * Math.floor(y / MOTION.farStepPx) : y) / 3;
+const draw = () => { bar.style.transform = `translateX(${cur}px)`; far.style.transform = `translateX(${farAt(cur)}px)`; };
+function frame(now) {
+  raf = 0;
+  const dt = Math.min(now - last, MOTION.maxStepMs); last = now;
+  follow(dt);
+  wrote = Math.round(cur); scrollTo(0, cur);
+  draw();
+  if (cur !== target) raf = requestAnimationFrame(frame);
+}
+function kick() { if (!raf && !seekMode) { last = performance.now() - 1000 / 60; raf = requestAnimationFrame(frame); } }   // motion-kit:clock
+if (!seekMode) {
+  addEventListener("wheel", (e) => { if (reduced) return; e.preventDefault(); target = Math.max(0, target + e.deltaY); kick(); }, { passive: false });
+  addEventListener("scroll", () => { if (Math.abs(scrollY - wrote) > 1 && cur === target) { cur = target = wrote = scrollY; draw(); } }, { passive: true });
+}
+window.__seek = (ms) => {
+  cur = target = 0;
+  const input = window.__input || [];
+  let t = 0, i = 0;
+  // A step from t to u moves toward the target set at t: from a sample's time on, the target is its value.
+  const to = (u) => { for (; i < input.length && input[i][0] <= t + 1e-9; i++) target = input[i][1]; follow(u - t); t = u; };
+  const n = Math.floor(ms * 60 / 1000 + 1e-9);
+  for (let k = 1; k <= n; k++) to((k * 1000) / 60);
+  if (ms - t > 1e-9) to(ms);
+  draw();
+};
+window.__state = () => ({ values: { p: cur, q: farAt(cur) }, events: {}, units: { p: "px", q: "px" } });
+draw();
+</script>
+</body>
+</html>

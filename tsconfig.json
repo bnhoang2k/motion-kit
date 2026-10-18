@@ -17,5 +17,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "lab", "test"]
+  "include": ["src", "lab", "kinds", "test"]
 }

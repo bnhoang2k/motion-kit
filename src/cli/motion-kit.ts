@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+import { readTextFile } from "../core/kit-root.ts";
 import { run } from "./run.ts";
 
-process.exitCode = run(process.argv.slice(2), {
+process.exitCode = await run(process.argv.slice(2), {
   cwd: process.cwd(),
   out: (s) => process.stdout.write(s),
   err: (s) => process.stderr.write(s),
-  read: (p) => (existsSync(p) ? readFileSync(p, "utf8") : undefined),
+  read: readTextFile,
   write: (p, d) => writeFileSync(p, d),
 });

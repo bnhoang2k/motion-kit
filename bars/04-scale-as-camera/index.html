@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="motion-kit-bar" content="04-scale-as-camera">
+<title>Scale as Camera</title>
+<meta name="description" content="Bar page 04. A window frame grows past the screen while the scroll drives one scale, so the zoom reads as camera travel.">
+<style>
+/* Fonts: three faces in fonts/ next to this page (@fontsource 5.2.5, SIL Open Font License, fonts/OFL.txt). They load offline. */
+@font-face{font-family:"Unbounded";font-weight:700;font-display:swap;src:url(fonts/unbounded-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"LexExa";font-weight:300;font-display:swap;src:url(fonts/lexend-exa-latin-300-normal.woff2) format("woff2")}
+@font-face{font-family:"Lexend";font-weight:600;font-display:swap;src:url(fonts/lexend-latin-600-normal.woff2) format("woff2")}
+
+:root{
+  --ink:#fff;
+  --ink-dark:#14110e;
+  --bg-page:#1b1815;          /* dark behind everything, same as the intro screen */
+  --deep:#1a68ab;             /* deep blue where the sky ends */
+  --stage-w:1440px;
+  --stage-h:900px;
+  --ui:"Lexend","Helvetica Neue",Arial,system-ui,sans-serif;
+  --wide:"Unbounded","Arial Black","Helvetica Neue",Arial,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{background:var(--bg-page);scroll-behavior:auto}
+body{margin:0;background:var(--bg-page);color:var(--ink);font-family:var(--ui);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+/* ---------- pinned hero: sticky for 1800 px of scroll, then it scrolls away ---------- */
+.pin{position:relative}
+.hero{position:sticky;top:0;height:100vh;height:100dvh;overflow:hidden;background:var(--bg-page)}
+/* The art is drawn on a 1440x900 stage and scaled to cover the screen. */
+.stage{position:absolute;left:50%;top:50%;width:var(--stage-w);height:var(--stage-h);margin:-450px 0 0 -720px;transform-origin:50% 50%}
+
+/* sky: 1632x1800, never scaled, drifts up at half the scroll speed */
+.sky{position:absolute;left:-96px;top:0;width:1632px;height:1800px;will-change:transform;overflow:hidden}
+.sky canvas{position:absolute;display:block}
+.sky-strip{position:absolute;left:0;top:800px;width:11672px;height:700px;animation:drift 48s linear infinite;will-change:transform}
+.sky-strip canvas{position:relative;display:block;float:left;width:5836px;height:700px}
+.sky-wisp{position:absolute;left:0;top:120px;width:11672px;height:440px;animation:drift 48s linear infinite;will-change:transform}
+.sky-wisp canvas{position:relative;display:block;float:left;width:5836px;height:440px}
+.sky-deep{position:absolute;left:0;right:0;top:1125px;height:675px;
+  background:linear-gradient(to bottom,rgba(1,90,169,0) 0%,rgba(10,95,170,.22) 55%,rgba(18,100,172,.55) 100%)}
+@keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(-5836px,0,0)}}
+
+/* wordmark: sits behind the shade, rides from the middle of the window up to the header slot */
+.logo{position:absolute;left:720px;top:450px;width:360px;margin-left:-180px;text-align:center;font:300 28px/1 "LexExa","Lexend",system-ui,sans-serif;letter-spacing:.06em;color:#fff;white-space:nowrap;transform-origin:50% 50%}
+
+/* cabin: wall, window frame, shade, vignette. One layer, scaled as one. */
+.cabin{position:absolute;inset:0;transform-origin:720px 450px;will-change:transform}
+.cabin canvas{position:absolute;display:block}
+#ring{left:501px;top:132px;width:447px;height:613px}
+#wall{left:0;top:0;width:1440px;height:900px}
+#mold{left:420px;top:40px;width:610px;height:788px}
+#shadow{left:420px;top:40px;width:610px;height:400px}
+.win{position:absolute;left:505px;top:0;width:439px;height:900px}
+/* shade panel: gradient face, squashes as it lifts */
+.shade{position:absolute;left:0;top:-300px;width:439px;height:985px;
+  background:radial-gradient(ellipse 260px 330px at 50% 710px,#dcdcdc 0%,#c3c3c3 42%,#a2a2a2 78%,#939393 100%);
+  box-shadow:inset 0 0 46px rgba(0,0,0,.22)}
+/* rail: the shade's lower edge with the pull handle. It moves rigidly. */
+.rail{position:absolute;left:0;top:685px;width:439px;height:73px;border-radius:0 0 50% 50%/0 0 14px 14px;
+  background:linear-gradient(to bottom,#cfcfcf 0,#cfcfcf 1px,#9a9a9a 2px,#8b8b8b 40%,#6a6a6a 78%,#555 100%);
+  box-shadow:inset 0 -10px 14px rgba(0,0,0,.28)}
+.handle{position:absolute;left:129px;top:13px;width:182px;height:34px;border-radius:50%;
+  background:radial-gradient(ellipse 50% 46% at 50% 38%,#a8a8a8 0%,#9a9a9a 55%,#6d6d6d 100%);
+  box-shadow:0 5px 9px rgba(0,0,0,.55),inset 0 3px 5px rgba(0,0,0,.45),inset 0 -2px 3px rgba(255,255,255,.18)}
+.vignette{position:absolute;inset:0;background:radial-gradient(circle,transparent 25%,rgba(0,0,0,.4))}
+
+/* text plane: scaled as one, faster than the cabin */
+.text-plane{position:absolute;inset:0;transform-origin:720px 450px;color:#fff}
+.title-left,.title-right{position:absolute;font:700 72px/63px var(--wide);letter-spacing:0;white-space:nowrap}
+.title-left{left:96px;top:108px}
+.title-right{right:96px;top:496px;text-align:right}
+.char{display:inline-block;opacity:0;filter:blur(36px)}
+.desc{position:absolute;left:96px;top:619px;width:300px}
+.desc .head{font:600 24px/24px var(--ui);letter-spacing:-.01em}
+.desc .rule{width:24px;height:1px;background:#fff;margin:24px 0 24px}
+.desc .copy{font:600 13px/16px var(--ui);margin-top:0}
+.line{display:block;opacity:0;filter:blur(36px)}
+.cue{position:absolute;left:996px;top:767px;width:348px;font:600 11px/1 var(--ui);letter-spacing:.01em;text-transform:uppercase}
+.cue .hair{height:1px;background:rgba(255,255,255,.75);margin-bottom:29px}
+.cue .row{display:flex;justify-content:space-between;align-items:center}
+.cue .row span{display:flex;align-items:center;gap:12px}
+.cue svg{width:10px;height:14px}
+
+/* header and action bar: fixed, slide in */
+.header{position:fixed;left:0;right:0;top:0;height:72px;z-index:40;display:flex;justify-content:space-between;align-items:center;padding:0 104px;
+  font:600 13px/1 var(--ui);color:#fff;transform:translateY(-72px)}
+.header nav,.header .contact{display:flex;gap:36px}
+.header a{color:inherit;text-decoration:none}
+.header a:hover{opacity:.7}
+.cta{position:fixed;left:0;right:0;bottom:0;height:120px;z-index:40;display:flex;justify-content:center;align-items:center;transform:translateY(120px);pointer-events:none}
+.cta-in{display:flex;gap:4px;padding:5px;border-radius:99px;background:rgba(255,255,255,.28);pointer-events:auto}
+.cta .pill{height:36px;padding:0 20px;border-radius:99px;background:#fff;color:#14110e;font:600 13px/36px var(--ui);text-decoration:none;white-space:nowrap}
+.cta .circ{width:36px;height:36px;border-radius:50%;background:#fff;display:grid;place-items:center}
+.cta .circ svg{width:16px;height:16px}
+
+/* the page's own blue: rises at full scroll speed under the lead paragraph, while the sky only drifts at half speed */
+.deep-fade{position:absolute;left:0;right:0;bottom:0;height:650px;z-index:4;pointer-events:none;background:linear-gradient(to bottom,rgba(26,104,171,0),rgba(26,104,171,.5) 45%,var(--deep) 100%)}
+/* lead paragraph: sits on the deep blue, plays in once */
+.lead{position:absolute;left:50%;bottom:-30px;width:min(1248px,calc(100% - 64px));min-height:384px;transform:translateX(-50%);z-index:5;margin:0;
+  font:600 clamp(24px,6.5vw,52px)/1.2308 var(--ui);letter-spacing:-.02em;overflow-wrap:anywhere;color:#fff;opacity:0;filter:blur(36px)}
+.after{position:relative;background:var(--deep);height:1200px;display:flex;align-items:flex-end;justify-content:center;padding:0 32px 180px}
+.after p{margin:0;font:600 13px/1.5 var(--ui);color:rgba(255,255,255,.7);text-align:center}
+
+/* intro screen */
+.intro{position:fixed;inset:0;z-index:100;pointer-events:none}
+.intro-bg{position:absolute;inset:0;background:linear-gradient(135deg,#1b1815,#2c231b)}
+/* after the cut, what is left of the dark layer is a soft veil at the top that slides up and out (L3) */
+.intro-bg.veil{-webkit-mask-image:var(--veil);mask-image:var(--veil);will-change:transform}
+.intro-info{position:absolute;left:0;right:0;top:50%;margin-top:-36px;text-align:center;color:#fff}
+.intro-info .line{opacity:0;filter:blur(36px)}
+.intro-info .l0{font:600 10px/12px var(--ui);letter-spacing:.04em;text-transform:uppercase}
+.intro-info .l1{height:12px}
+.intro-info .l2,.intro-info .l3{font:600 20px/24px var(--ui)}
+
+/* reduced motion: no intro, no smoothing, no cloud drift. The zoom steps between a few still views (MOTION.reducedViews). */
+.rm .sky-strip,.rm .sky-wisp{animation:none}
+.rm .header,.rm .cta{transform:none}
+.rm .intro{display:none}
+.rm .char,.rm .line,.rm .lead{opacity:1;filter:none}
+@media (max-width:900px){.header{padding:0 20px}.header nav{gap:16px}.header nav a:nth-child(n+3){display:none}.header .contact{display:none}.header a{white-space:nowrap}}
+@media (max-width:560px){.header nav{display:none}}   /* the wordmark takes the header slot at the end of the zoom, so the links step aside */
+@media (prefers-reduced-motion:reduce){.sky-strip,.sky-wisp{animation:none}}
+</style>
+</head>
+<body>
+
+<div class="pin" id="pin">
+  <section class="hero" id="hero" aria-label="Hero">
+    <div class="stage" id="stage">
+      <div class="sky" id="sky" aria-hidden="true">
+        <canvas id="skyc" style="left:0;top:0;width:1632px;height:1800px"></canvas>
+        <div class="sky-wisp" id="wisp"></div>
+        <div class="sky-strip" id="strip"></div>
+        <div class="sky-deep"></div>
+      </div>
+      <div class="logo" id="logo" aria-hidden="true">Wordmark</div>
+
+      <div class="cabin" id="cabin" aria-hidden="true">
+        <canvas id="ring"></canvas>
+        <div class="win">
+          <div class="shade" id="panel"></div>
+          <div class="rail" id="rail"><i class="handle"></i></div>
+        </div>
+        <canvas id="wall"></canvas>
+        <canvas id="mold"></canvas>
+        <canvas id="shadow"></canvas>
+        <div class="vignette"></div>
+      </div>
+
+      <div class="text-plane" id="text">
+        <h1 class="title-left" id="tl" aria-label="Scale is the lens"><div>Scale is</div><div>the lens</div></h1>
+        <h2 class="title-right" id="tr" aria-label="Depth from one scale"><div>Depth from</div><div>one scale</div></h2>
+        <div class="desc" id="desc">
+          <div class="head"><span class="line">Small</span><span class="line">sub head</span><span class="line">goes here</span></div>
+          <div class="rule line"></div>
+          <div class="copy"><span class="line">A short supporting paragraph in</span><span class="line">neutral placeholder text. It sits</span><span class="line">under the headline and leaves</span><span class="line">with it, to the left.</span></div>
+        </div>
+        <div class="cue" id="cue">
+          <div class="hair line"></div>
+          <div class="row">
+            <span class="line"><svg viewBox="0 0 10 14" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 2l4 3 4-3M1 6l4 3 4-3M1 10l4 3 4-3"/></svg>Scroll down</span>
+            <span class="line">Keep going</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="deep-fade" aria-hidden="true"></div>
+  <p class="lead" id="lead">A placeholder statement sits here, in the sky colour. It fades in once as the zoom ends, then stays. The scale did the travelling, so the next block can simply arrive and be read.</p>
+</div>
+<section class="after"><p>End of the hero. Scroll back up to run the zoom in reverse.</p></section>
+
+<header class="header" id="header">
+  <nav><a href="#">Link one</a><a href="#">Link two</a><a href="#">Link three</a><a href="#">Link four</a></nav>
+  <div class="contact"><a href="#">00 000 000 0000</a><a href="#">Write to us</a></div>
+</header>
+<div class="cta" id="cta"><div class="cta-in"><a class="pill" href="#">Primary action</a><span class="circ"><svg viewBox="0 0 16 16" fill="#14110e" aria-hidden="true"><path d="M2 9.5l12-6-3.2 9-2.6-3-2.4 3.5-.5-3.6z"/></svg></span></div></div>
+
+<div class="intro" id="intro" aria-hidden="true">
+  <div class="intro-bg" id="introBg"></div>
+  <div class="intro-info" id="introInfo">
+    <span class="line l0">Wordmark</span>
+    <span class="line l1"></span>
+    <span class="line l2">Placeholder tagline</span>
+    <span class="line l3">goes here</span>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================================
+   MOTION: every motion number on this page. Row names (L1..L9, I1, Z1..Z10) are the rows listed
+   in notes.md in the same folder. Times are milliseconds on the page clock. "S" is the instant
+   the dark screen cuts to the lit window. Scroll values are in scroll pixels.
+   ===================================================================================== */
+const MOTION = {
+  // L1  Intro tagline, four lines, blur 36 px -> 0 and fade in, on a dark screen. Times are ms after navigation.
+  //     The lines start about 80 ms apart on one shared curve, so they settle in as one phrase.
+  introStart: [809, 890, 969, 1050],  // L1  start of each line (about an 80 ms stagger). Line 1 is an empty spacer
+
+  introDur: 1190,                     // L1  settle time of one line, ms
+  introEase: 'power4.out',            // L1  one curve for all four lines
+  blur: 36,                           // L1, L6, L7, Z8  the blur used by every text reveal, px
+
+  // L2  Dark hold until S: the screen stays dark about 1.1 s after the last tagline line settles.
+  S: 3360,                            // L2  zero of every "S + n" row below, ms after the page loads. The page waits if its art is not ready yet.
+  // L3  The cut. The dark screen goes in one frame, 200 ms after S. The rows below count from S, not from the cut.
+  cutDelay: 200,                      // L3  ms after S
+  // L3  What is left after the cut: a soft dark veil at the top of the screen that slides up and out in about 315 ms.
+  //     veilStops gives the veil alpha by screen row. The veil moves a*t + b*t*t px after the cut.
+  veilStops: [[0, .80], [37, .72], [112, .58], [187, .44], [262, .33], [337, .24], [412, .16], [487, .10], [562, .05], [637, .01], [712, 0]],  // L3  [stage y, alpha]
+  veilA: 1.025, veilB: .0039,         // L3  px per ms, px per ms^2: 54 px at 40 ms, 263 at 160, 593 at 280
+  veilEnd: 712,                       // L3  px of move after which nothing is left (about 315 ms)
+
+  // L4  Nav bar slides down, button bar slides up. Both start at S + 473.
+  navStart: 473, navDur: 1366, navEase: 'power4.out', navFrom: -72,   // L4  header, px
+  ctaStart: 473, ctaDur: 1366, ctaEase: 'power4.out', ctaFrom: 120,   // L4  action bar, px
+
+  // L5  Shade lifts into the top of the frame and its face squashes. Curve: cubic-bezier(.76,0,.24,1) (ease in-out quart), 1.2 s.
+  shadeStart: 417, shadeDur: 1200, shadeEase: 'quart.inOut',          // L5
+  shadeLift: 433.263,                 // L5  group y at the end, px
+  shadeSquash: 0.5,                   // L5  face scaleY at the end
+  shadeOriginY: 437.5,                // L5  stage y of the squash origin. Derived so the face edge stays on the rail top: 0.5 * 437.5 + 0.5 * 685 - 433.263 = 128
+  railTravel: 557,                    // L5  how far the rail and handle rise, px: closed top edge 685, rest top edge 128. Equals 433.263 * 1.2857: the rail rises 1.2857 times as far as the shade.
+
+  // L6  Headline characters: opacity 0 -> 1 and blur 36 -> 0, one block on the left and one on the right in parallel.
+  charStart: 765, charStagger: 50, charDur: 1190, charEase: 'power4.out',  // L6
+  lineStagger: 100,                   // L6  small text lines use a 100 ms stagger
+
+  // L7  Intro layer leaves: each tagline line blurs out, then the whole layer fades.
+  introOutStart: [419, 441, 455, 474], introOutDur: 600, introOutEase: 'power3.in',  // L7  per line, about an 18 ms stagger
+  layerFadeStart: 817, layerFadeDur: 726, layerFadeEase: 'power4.out',                // L7  whole layer
+
+  // L8  The contact shadow fades in under the shade. Same curve as L5, about 0.4 s later.
+  shadowStart: 816, shadowDur: 1200, shadowEase: 'quart.inOut',    // L8
+
+  // L9  Overall light bloom is the sum of L3 to L8. No value of its own.
+
+  // I1  Cloud strip: 5836 px every 48 s, linear, forever. Set in the CSS (animation: drift 48s linear infinite).
+  cloudLoopPx: 5836, cloudLoopSec: 48, // I1  121.6 px a second
+
+  // Z1  Scroll smoothing: each frame covers a lambda-based share of what is left. 50% at 115 ms, 99% at about 770 ms.
+  lambda: 6.0,                        // Z1  per second
+  maxStepMs: 50,                      // cap on one time step, so a stalled frame cannot throw the scroll
+
+  // Z2 to Z6  The zoom. All linear in the smoothed scroll position y.
+  zoomDistance: 1800,                 // Z2..Z5  scroll px for the whole zoom
+  cabinScale: [1, 6.5],               // Z2  cabin layer scale, y = 0 -> 1800, origin (720, 450)
+  cabinShiftX: -28.8,                 // Z2  cabin x at the end, px
+  textScale: [1, 8],                  // Z3  text plane scale, origin (720, 450)
+  textSpreadX: 720,                   // Z4  left blocks move -720 px, right blocks +720 px, inside the scaled plane
+  skyRise: 0.5,                       // Z5  sky layer rises 0.5 px per scroll px (half speed), not scaled
+  // Z6  falls out of Z2: the frame leaves the screen by scroll 720 to 1000. No value of its own.
+  // Z10 Reduced motion: no continuous zoom. The scroll steps between still views: the closed window, the type gone,
+  //     the frame cleared, pure sky. Each view is the zoom at that scroll position, shown from it until the next one.
+  reducedViews: [0, 450, 1000, 1800], // Z10 scroll px
+
+  // Wordmark: not a table row. Goes from the middle of the window to the header slot on the CSS "ease" curve over the zoom.
+  logoRise: 396, logoScaleFrom: 1.25, logoEase: [0.25, 0.1, 0.25, 1],  // cubic-bezier, the CSS "ease" curve
+  logoHeaderY: 35,                    // header slot centre, px from the top of the screen
+
+  // Z7  Hero lets go at scroll 1800 and scrolls away over one viewport. This is the sticky release; no value.
+  // Z8  Lead paragraph plays in once when its top crosses 768 px of a 900 px viewport (0.8533).
+  leadTrigger: 0.8533, leadDur: 1190, leadEase: 'power4.out',  // Z8
+  // Z8b Lead ink: the characters ink in one after another with the scroll, from faint to solid:
+  //     all faint at scroll 1500, 38% of the characters solid at 1800, all solid at 2100.
+  inkFaint: 0.2,                      // Z8b opacity of a character not yet inked
+  inkRange: 592,                      // Z8b scroll px from the trigger to the last character: (1800 - 1575) / 0.38
+  inkSoft: 4,                         // Z8b characters across the soft edge between inked and faint
+
+  // Z9  Scroll back up: everything in Z2 to Z5 runs backward on the same damping. No value; the scrub is two-way.
+};
+
+/* ---------- small helpers ---------- */
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const bezier = (x1, y1, x2, y2) => {            // CSS cubic-bezier, solved by bisection
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx, cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  return x => { let lo = 0, hi = 1, t = x; for (let i = 0; i < 24; i++) { t = (lo + hi) / 2; const X = ((ax * t + bx) * t + cx) * t; if (X < x) lo = t; else hi = t; } return ((ay * t + by) * t + cy) * t; };
+};
+const EASE = {
+  'power3.in': x => x * x * x * x,
+  'power4.out': x => 1 - Math.pow(1 - x, 5),
+  'quart.inOut': bezier(.76, 0, .24, 1),
+};
+const logoEase = bezier(...MOTION.logoEase);
+/* progress 0..1 of a tween that starts at `start` and runs `dur` ms */
+const tw = (t, start, dur, ease) => { const x = (t - start) / dur; return EASE[ease](x <= 0 ? 0 : x >= 1 ? 1 : x); };
+const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* ?seek: the fixed clock. No live loop runs, and window.__seek(ms) draws the page at that time (see "the fixed clock" below). */
+const seekMode = new URLSearchParams(location.search).has('seek');
+if (rm) document.documentElement.classList.add('rm');
+try { history.scrollRestoration = 'manual'; } catch (e) {}
+
+/* ---------- split headline and small text into animatable pieces ---------- */
+function splitChars(el) {
+  const out = [];
+  el.querySelectorAll('div').forEach(div => {
+    const txt = div.textContent; div.textContent = '';
+    for (const ch of txt) {
+      if (ch === ' ') { div.appendChild(document.createTextNode(' ')); continue; }
+      const s = document.createElement('span'); s.className = 'char'; s.setAttribute('aria-hidden', 'true'); s.textContent = ch; div.appendChild(s); out.push(s);
+    }
+  });
+  return out;
+}
+const charsL = splitChars($('tl')), charsR = splitChars($('tr'));
+const descLines = [...document.querySelectorAll('#desc .line')];
+const cueLines = [...document.querySelectorAll('#cue .line')];
+const introLines = [...document.querySelectorAll('#introInfo .line')];
+const leadChars = (() => {                                              // Z8b: lead paragraph split into characters for the ink
+  const lead = $('lead'), txt = lead.textContent, out = []; lead.setAttribute('aria-label', txt); lead.textContent = '';
+  for (const ch of txt) { if (ch === ' ') { lead.appendChild(document.createTextNode(' ')); continue; } const s = document.createElement('span'); s.setAttribute('aria-hidden', 'true'); s.textContent = ch; lead.appendChild(s); out.push(s); }
+  return out;
+})();
+
+/* =====================================================================================
+   ART: everything is drawn in code, once, at start. No images, no downloads.
+   ===================================================================================== */
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function blob(ctx, x, y, r, rgb, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(.55, `rgba(${rgb},${a * .45})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.2832); ctx.fill();
+}
+/* Small job queue. The heavy art work runs in 7 ms slices between frames, so the intro never janks.
+   A job returns true when it is finished. */
+const jobs = [], mch = new MessageChannel();
+let pumping = false;
+mch.port1.onmessage = () => {
+  const t0 = performance.now();                                  // motion-kit:not-motion (a work budget for the art, not a clock)
+  while (jobs.length && performance.now() - t0 < 7) { try { if (jobs[0]()) jobs.shift(); } catch (e) { console.error(e); jobs.shift(); } }   // motion-kit:not-motion
+  if (jobs.length) mch.port2.postMessage(0); else pumping = false;
+};
+function enqueue(fn) { jobs.push(fn); if (!pumping) { pumping = true; mch.port2.postMessage(0); } }
+function steps(list) { return () => { list.shift()(); return !list.length; }; }      // run one step per call
+function chunked(n, per, fn) { let i = 0; return () => { const e = Math.min(n, i + per); for (; i < e; i++) fn(i); return i >= n; }; }
+
+function paintSky() {
+  const SK = .5, c = $('skyc'); c.width = 1632 * SK; c.height = 1800 * SK;
+  const ctx = c.getContext('2d'); ctx.scale(SK, SK);
+  const R = mulberry(7);
+  const clump = (cx, cy, n, sp, r0, r1, a, rgb) => { for (let i = 0; i < n; i++) blob(ctx, cx + (R() - .5) * 2 * sp, cy + (R() - .5) * sp * .55, r0 + R() * (r1 - r0), rgb || '255,255,255', a * (.5 + R() * .7)); };
+  enqueue(steps([
+    () => {
+      const g = ctx.createLinearGradient(0, 0, 0, 1800);
+      [[0, '#2f93d3'], [.14, '#4aa6dc'], [.2, '#7fc2e6'], [.3, '#98cbe8'], [.37, '#a9d0e8'], [.455, '#b8cbe2'], [.55, '#b2c4dd'], [.7, '#a0b9d6'], [.85, '#80a6cf'], [1, '#538ac0']].forEach(s => g.addColorStop(s[0], s[1]));
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 1632, 1800);
+      for (let i = 0; i < 7; i++) blob(ctx, 560 + R() * 700, 90 + R() * 190, 120 + R() * 150, '22,146,208', .55);   // deep blue patches
+      blob(ctx, 850, 165, 210, '20,142,205', .8); blob(ctx, 760, 130, 180, '24,150,208', .7);
+    },
+    () => { clump(190, 130, 46, 260, 50, 150, .34); clump(120, 330, 20, 220, 40, 110, .22); },   // white cumulus
+    () => { clump(820, 110, 26, 330, 30, 100, .2); clump(1130, 250, 26, 300, 40, 120, .22); clump(1480, 560, 30, 240, 50, 160, .3); },
+    () => { clump(760, 560, 26, 640, 50, 170, .13); clump(420, 700, 22, 520, 50, 150, .16, '235,240,250'); clump(1180, 740, 22, 520, 50, 150, .18, '236,232,246'); },
+    () => {                                                       // horizon haze
+      const h = ctx.createLinearGradient(0, 700, 0, 840);
+      h.addColorStop(0, 'rgba(210,214,234,0)'); h.addColorStop(1, 'rgba(206,212,232,.95)');
+      ctx.fillStyle = h; ctx.fillRect(0, 700, 1632, 140);
+    },
+  ]));
+}
+function paintStrip() {
+  const W = MOTION.cloudLoopPx, H = 700, SK = .5, strip = $('strip');
+  const mk = () => { const c = document.createElement('canvas'); c.width = W * SK; c.height = H * SK; return c; };
+  const c1 = mk(), ctx = c1.getContext('2d'); ctx.scale(SK, SK);
+  const R = mulberry(23);
+  const ell = (x, y, rx, ry, rgb, a) => {
+    for (const dx of [-W, 0, W]) {                                 // wrap, so the loop has no seam
+      if (x + dx + rx < 0 || x + dx - rx > W) continue;
+      ctx.save(); ctx.translate(x + dx, y); ctx.scale(rx, ry);
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, 1); gr.addColorStop(0, `rgba(${rgb},${a})`); gr.addColorStop(.6, `rgba(${rgb},${a * .4})`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(0, 0, 1, 0, 6.2832); ctx.fill(); ctx.restore();
+    }
+  };
+  enqueue(() => {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    [[0, 'rgba(188,197,222,.95)'], [.05, 'rgba(196,197,224,1)'], [.35, 'rgba(184,194,222,1)'], [.68, 'rgba(156,180,216,1)'], [.82, 'rgba(142,170,212,.8)'], [1, 'rgba(124,160,208,0)']].forEach(s => g.addColorStop(s[0], s[1]));
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); return true;
+  });
+  enqueue(chunked(1100, 30, () => {
+    const d = Math.pow(R(), 1.15), y = 20 + 660 * d;                 // depth: lower on the strip means nearer, so bigger
+    const rx = 45 + 300 * (.12 + d) * (.55 + R() * .9), ry = rx * (.12 + .2 * R()) + 2;
+    const blue = R() < .34;
+    ell(R() * W, y, rx, ry, blue ? '92,138,190' : (R() < .3 ? '244,226,238' : '242,240,250'), (blue ? .2 + .22 * d : .22 + .3 * R()) * (1 - sstep(520, 690, y)));   // fade out near the bottom of the strip
+  }));
+  enqueue(() => { strip.appendChild(c1); const c2 = mk(); c2.getContext('2d').drawImage(c1, 0, 0); strip.appendChild(c2); return true; });   // second tile
+}
+
+/* I1, visible part: thin cirrus wisps high in the sky, seen through the top of the glass at rest. Same loop as the strip. */
+function paintWisps() {
+  const W = MOTION.cloudLoopPx, H = 440, SK = .5, host = $('wisp');
+  const mk = () => { const c = document.createElement('canvas'); c.width = W * SK; c.height = H * SK; return c; };
+  const c1 = mk(), ctx = c1.getContext('2d'); ctx.scale(SK, SK);
+  const R = mulberry(41);
+  const streak = (x, y, rx, ry, rot, a) => {
+    for (const dx of [-W, 0, W]) {                                 // wrap, so the loop has no seam
+      if (x + dx + rx < 0 || x + dx - rx > W) continue;
+      ctx.save(); ctx.translate(x + dx, y); ctx.rotate(rot); ctx.scale(rx, ry);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1); g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(.5, `rgba(250,252,255,${a * .45})`); g.addColorStop(1, 'rgba(250,252,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 1, 0, 6.2832); ctx.fill(); ctx.restore();
+    }
+  };
+  enqueue(chunked(70, 10, () => {                                  // wisp clusters: a few long streaks around a centre
+    const cx = R() * W, cy = 40 + 330 * Math.pow(R(), 1.4), n = 6 + (R() * 10 | 0), rot = -.35 + R() * .3;
+    for (let i = 0; i < n; i++) streak(cx + (R() - .5) * 260, cy + (R() - .5) * 90, 40 + R() * 120, 6 + R() * 18, rot + (R() - .5) * .5, (.10 + R() * .22) * (1 - sstep(260, 420, cy)));
+  }));
+  enqueue(() => { host.appendChild(c1); const c2 = mk(); c2.getContext('2d').drawImage(c1, 0, 0); host.appendChild(c2); return true; });   // second tile
+}
+
+/* ---- cabin: wall, halo, window frame, ring. Per-pixel shading in code, in the same job queue. ---- */
+const GEO = {   // superellipse shapes in stage px
+  M: { cx: 723.5, cy: 435, a: 298.5, b: 387 },     // outer edge of the frame
+  O: { cx: 724.5, cy: 438.5, a: 219.5, b: 302.5 }, // opening: 439 x 605 at (505, 136)
+  P: { cx: 726.5, cy: 418, a: 191.5, b: 268 },     // glass pane inside the ring
+};
+const SUPER_N = 2.5;     // exponent of every frame shape. 2 is an ellipse, higher is boxier.
+const SD = new Float64Array(3);
+/* Distance tables: the u and v parts of a superellipse depend only on the column and the row, so they are worked out once. */
+function prep(g, xs, ys) {
+  const n = SUPER_N, T = { inv: 1 / n, UN: new Float64Array(xs.length), UG: new Float64Array(xs.length), SX: new Float64Array(xs.length), VN: new Float64Array(ys.length), VG: new Float64Array(ys.length), SY: new Float64Array(ys.length) };
+  xs.forEach((x, i) => { const d = x - g.cx, u = Math.abs(d) / g.a; T.UN[i] = Math.pow(u, n); T.UG[i] = Math.pow(u, n - 1) / g.a; T.SX[i] = d < 0 ? -1 : 1; });
+  ys.forEach((y, j) => { const d = y - g.cy, v = Math.abs(d) / g.b; T.VN[j] = Math.pow(v, n); T.VG[j] = Math.pow(v, n - 1) / g.b; T.SY[j] = d < 0 ? -1 : 1; });
+  return T;
+}
+function ev(T, i, j) {   // signed distance (first order), outwards positive, plus the outward unit normal. Results go in SD.
+  const f = T.UN[i] + T.VN[j] + 1e-12, rr = Math.pow(f, T.inv), hg = Math.hypot(T.UG[i], T.VG[j]) + 1e-12;
+  SD[0] = (rr - 1) * f / (rr * hg); SD[1] = T.SX[i] * T.UG[i] / hg; SD[2] = T.SY[j] * T.VG[j] / hg;
+}
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const TLR = [[0, 130], [.05, 155], [.15, 166], [.3, 184], [.45, 199], [.6, 206], [.75, 211], [.85, 216], [.92, 228], [1, 230]];
+const tab = (T, u) => { for (let i = 1; i < T.length; i++) if (u <= T[i][0]) { const a = T[i - 1], b = T[i]; return a[1] + (b[1] - a[1]) * (u - a[0]) / (b[0] - a[0]); } return T[T.length - 1][1]; };
+function superPath(ctx, g, grow, R) {   // closed path of a superellipse, 360 points
+  ctx.beginPath();
+  for (let i = 0; i <= 360; i++) {
+    const t = i / 360 * 6.28319, c = Math.cos(t), s = Math.sin(t);
+    const x = g.cx + (g.a + grow) * Math.sign(c) * Math.pow(Math.abs(c), 2 / SUPER_N), y = g.cy + (g.b + grow) * Math.sign(s) * Math.pow(Math.abs(s), 2 / SUPER_N);
+    i ? ctx.lineTo(x * R, y * R) : ctx.moveTo(x * R, y * R);
+  }
+  ctx.closePath();
+}
+function paintCabin(done) {
+  const R = 2, W = 1440 * R, H = 900 * R;
+  const wall = $('wall'), mold = $('mold'), ring = $('ring'), shad = $('shadow');
+  const ML = 420, MT = 40, MW = 610, MH = 788;                      // frame region, stage px
+  wall.width = W; wall.height = H;
+  mold.width = MW * R; mold.height = MH * R;
+  ring.width = 447 * R; ring.height = 613 * R;
+  shad.width = 610 * R; shad.height = 400 * R;
+  const wc = wall.getContext('2d');
+  const hw = 360, hh = 225, hc = document.createElement('canvas'); hc.width = hw; hc.height = hh;
+  const hx = hc.getContext('2d'), hd = hx.createImageData(hw, hh);
+  let md, mp, rd, rp, sdt, sp, TM, TO, TP;
+  enqueue(() => {                                                   // wall base
+    const wg = wc.createLinearGradient(0, 0, W, H);
+    wg.addColorStop(0, '#2f251e'); wg.addColorStop(.5, '#34291f'); wg.addColorStop(1, '#2c231b');
+    wc.fillStyle = wg; wc.fillRect(0, 0, W, H); return true;
+  });
+  // halo around the frame: computed at quarter size and stretched.
+  let TH;
+  enqueue(chunked(hh, 45, j => {
+    if (!TH) TH = prep(GEO.M, Array.from({ length: hw }, (_, i) => i * 4 + 2), Array.from({ length: hh }, (_, j) => j * 4 + 2));
+    for (let i = 0; i < hw; i++) {
+      ev(TH, i, j);
+      const d = Math.max(0, SD[0]), ny = SD[2];
+      const A = ny < 0 ? 1 - .38 * -ny : 1 - .12 * ny;
+      const white = 55 * Math.exp(-d / 70) * A, warm = 100 * Math.exp(-d / 130) * A, near = Math.exp(-d / 35) * A;   // neutral at the frame, warmer with distance
+      const k = (j * hw + i) * 4;
+      hd.data[k] = 50 + white + warm; hd.data[k + 1] = 38 + white + warm * .84 + 30 * near; hd.data[k + 2] = 30 + white + warm * .72 + 53 * near; hd.data[k + 3] = 255;
+    }
+  }));
+  enqueue(() => {
+    hx.putImageData(hd, 0, 0); wc.imageSmoothingEnabled = true; wc.imageSmoothingQuality = 'high'; wc.drawImage(hc, 0, 0, W, H);
+    wc.globalCompositeOperation = 'destination-out'; superPath(wc, GEO.O, 1.5, R); wc.fill(); wc.globalCompositeOperation = 'source-over';   // cut the opening
+    md = new ImageData(mold.width, mold.height); mp = md.data;
+    rd = new ImageData(ring.width, ring.height); rp = rd.data;
+    sdt = new ImageData(shad.width, shad.height); sp = sdt.data;
+    const xs = Array.from({ length: MW * R }, (_, c) => ML + (c + .5) / R), ys = Array.from({ length: MH * R }, (_, r) => MT + (r + .5) / R);
+    TM = prep(GEO.M, xs, ys); TO = prep(GEO.O, xs, ys); TP = prep(GEO.P, xs, ys);
+    return true;
+  });
+  enqueue(chunked(MH * R, 6, row => {
+    const py = MT + (row + .5) / R;
+    for (let col = 0; col < MW * R; col++) {
+      const px = ML + (col + .5) / R;
+      ev(TM, col, row); const dM = SD[0], nMx = SD[1], nMy = SD[2];
+      if (dM > .5 / R) continue;
+      ev(TO, col, row); const dO = SD[0], nOx = SD[1], nOy = SD[2];
+      // ---- ring and pane (below the shade) ----
+      if (dO < 2) {
+        const rx = col + (ML - 501) * R, ry = row + (MT - 132) * R;
+        if (rx >= 0 && ry >= 0 && rx < ring.width && ry < ring.height) {
+          ev(TP, col, row); const dP = SD[0];
+          const a = clamp(.5 + dP * R, 0, 1);
+          if (a > 0) {
+            const hi = Math.pow(clamp(1 - dP / 12, 0, 1), 1.6), dk = .86 + .14 * sstep(0, 6, -dO);
+            const j = (ry * ring.width + rx) * 4;
+            rp[j] = (189 + 49 * hi) * dk; rp[j + 1] = (206 + 49 * hi) * dk; rp[j + 2] = (218 + 37 * hi) * dk; rp[j + 3] = a * 255;
+          }
+        }
+      }
+      // ---- contact shadow near the top of the opening (fades in with the shade lift) ----
+      if (row < shad.height) {
+        const topO = clamp(-nOy * 1.25, 0, 1), topM = clamp(-nMy, 0, 1);
+        let a;
+        if (dO >= 0) a = topO * (.19 + .57 * (1 - sstep(8, 64, dO))) + (1 - topO) * .19 * topM; else a = topO * .76 * Math.exp(dO / 12);
+        a *= 1 - sstep(240, 440, py);                              // dies out by mid-height so there is no seam
+        if (dM > -.5 / R) a *= clamp(.5 - dM * R, 0, 1);
+        sp[(row * shad.width + col) * 4 + 3] = clamp(a, 0, 1) * 255;
+      }
+      // ---- frame (above the shade) ----
+      if (dO < -.5 / R) continue;                                  // opening is a hole
+      const am = clamp(.5 - dM * R, 0, 1) * clamp(.5 + dO * R, 0, 1);
+      const dOut = -dM, dIn = Math.max(dO, 0), w = Math.max(dOut + dIn, 1e-3), u = clamp(dOut / w, 0, 1);
+      const gx = (-nMx * dIn - dOut * nOx), gy = (-nMy * dIn - dOut * nOy), gl = Math.hypot(gx, gy) + 1e-9;
+      let V = tab(TLR, u) * (1 - .2 * Math.abs(gy / gl) * (1 - sstep(.8, .95, u)));
+      V *= 1 - (nMy > 0 ? .74 * nMy : .22 * -nMy) * Math.exp(-dOut / 11);   // darker rim on the outer edge, deeper at the bottom
+      V /= 1 - .4 * clamp((Math.hypot(px - 720, py - 450) - 212) / 637, 0, 1);   // the table was read off a frame that already had the vignette on it
+      const k = (row * mold.width + col) * 4;
+      mp[k] = V; mp[k + 1] = V * .99; mp[k + 2] = V * .98; mp[k + 3] = am * 255;
+    }
+  }));
+  enqueue(steps([
+    () => mold.getContext('2d').putImageData(md, 0, 0),
+    () => ring.getContext('2d').putImageData(rd, 0, 0),
+    () => shad.getContext('2d').putImageData(sdt, 0, 0),
+    () => { done && done(); },
+  ]));
+}
+
+/* =====================================================================================
+   DRIVER
+   ===================================================================================== */
+const el = {
+  stage: $('stage'), hero: $('hero'), pin: $('pin'), sky: $('sky'), logo: $('logo'), cabin: $('cabin'), text: $('text'), tl: $('tl'), tr: $('tr'),
+  desc: $('desc'), cue: $('cue'), panel: $('panel'), rail: $('rail'), shadow: $('shadow'), header: $('header'), cta: $('cta'),
+  intro: $('intro'), introBg: $('introBg'), lead: $('lead'),
+};
+let k = 1, vh = innerHeight, maxScroll = 0, leadTriggerY = 1e9;
+function layout() {
+  vh = innerHeight;
+  k = Math.max(innerWidth / 1440, vh / 900);
+  el.stage.style.transform = `scale(${k})`;
+  el.panel.style.transformOrigin = `0 ${MOTION.shadeOriginY - el.panel.offsetTop}px`;   // the face squashes about this stage y
+  el.pin.style.height = (MOTION.zoomDistance + vh) + 'px';
+  if (!rm) {                                                                            // under reduced motion the lead shows at once
+    const top = el.pin.offsetTop + el.pin.offsetHeight + 30 - el.lead.offsetHeight;     // lead sits 30 px below the pin end
+    leadTriggerY = top - MOTION.leadTrigger * vh;
+  }
+  maxScroll = Math.max(0, document.documentElement.scrollHeight - vh);
+}
+
+let cutAt = MOTION.S, ready = false, leadT0 = -1;      // ready: the art is drawn. Until then the cut waits.
+let cur = 0, target = 0, last = 0, raf = 0;
+/* The page clock: simNow, in ms after the page loads. Each frame moves it by the frame time, capped at maxStepMs, so a
+   stalled frame cannot throw the motion. Every tween reads it. Under ?seek, __seek sets it. */
+let simNow = null;
+const lastChar = Math.max(charsL.length, charsR.length) - 1;
+const LOAD_TAIL = MOTION.charStart + lastChar * MOTION.charStagger + MOTION.charDur + 120;   // when the last intro tween is done, after S
+
+function renderLoad(t) {
+  const M = MOTION, S = ready ? cutAt : 1e9;
+  // L1 and L7: tagline lines come in on the dark screen, then blur out after the cut
+  for (let i = 0; i < 4; i++) {
+    const pin = tw(t, M.introStart[i], M.introDur, M.introEase), pout = tw(t, S + M.introOutStart[i], M.introOutDur, M.introOutEase);
+    const o = pin * (1 - pout), b = M.blur * ((1 - pin) + pout);
+    const s = introLines[i].style; s.opacity = o.toFixed(4); s.filter = b < .05 ? 'none' : `blur(${b.toFixed(2)}px)`;
+  }
+  // L3: the cut. One frame, cutDelay after S. A soft veil is left at the top and slides up and out.
+  const tc = t - (S + M.cutDelay);
+  if (tc < 0) { el.introBg.classList.remove('veil'); el.introBg.style.transform = ''; el.introBg.style.visibility = 'visible'; }
+  else {
+    const mv = M.veilA * tc + M.veilB * tc * tc;
+    if (mv >= M.veilEnd) el.introBg.style.visibility = 'hidden';
+    else { el.introBg.classList.add('veil'); el.introBg.style.visibility = 'visible'; el.introBg.style.transform = `translate3d(0,${(-mv * vh / 900).toFixed(1)}px,0)`; }
+  }
+  // L7: the whole intro layer fades
+  const lf = tw(t, S + M.layerFadeStart, M.layerFadeDur, M.layerFadeEase);
+  el.intro.style.opacity = (1 - lf).toFixed(4); el.intro.style.visibility = lf >= 1 ? 'hidden' : 'visible';
+  // L4: header and action bar
+  el.header.style.transform = `translate3d(0,${(M.navFrom * (1 - tw(t, S + M.navStart, M.navDur, M.navEase))).toFixed(2)}px,0)`;
+  el.cta.style.transform = `translate3d(0,${(M.ctaFrom * (1 - tw(t, S + M.ctaStart, M.ctaDur, M.ctaEase))).toFixed(2)}px,0)`;
+  // L5: shade lifts, face squashes, rail rises
+  const e = tw(t, S + M.shadeStart, M.shadeDur, M.shadeEase);
+  el.panel.style.transform = `translate3d(0,${(-M.shadeLift * e).toFixed(2)}px,0) scaleY(${(1 - M.shadeSquash * e).toFixed(4)})`;
+  el.rail.style.transform = `translate3d(0,${(-M.railTravel * e).toFixed(2)}px,0)`;
+  // L8: contact shadow
+  el.shadow.style.opacity = tw(t, S + M.shadowStart, M.shadowDur, M.shadowEase).toFixed(4);
+  // L6: headline characters, small text
+  const setPiece = (n, p) => { n.style.opacity = p.toFixed(4); n.style.filter = p >= 1 ? 'none' : `blur(${(M.blur * (1 - p)).toFixed(2)}px)`; };
+  const base = S + M.charStart;
+  charsL.forEach((c, i) => setPiece(c, tw(t, base + i * M.charStagger, M.charDur, M.charEase)));
+  charsR.forEach((c, i) => setPiece(c, tw(t, base + i * M.charStagger, M.charDur, M.charEase)));
+  descLines.forEach((c, i) => setPiece(c, tw(t, base + (i < 3 ? i : i < 4 ? 0 : i - 3) * M.lineStagger, M.charDur, M.charEase)));   // head: 3 lines, rule rides with line 0, copy: 4 lines
+  cueLines.forEach((c, i) => setPiece(c, tw(t, base + i * M.lineStagger, M.charDur, M.charEase)));
+  // Z8: lead paragraph, once
+  if (leadT0 >= 0) { const p = tw(t, leadT0, M.leadDur, M.leadEase); setPiece(el.lead, p); }
+}
+
+/* Under reduced motion, the still view for scroll position y (Z10): the last of MOTION.reducedViews at or below y. */
+function viewAt(y) { let v = 0; for (const s of MOTION.reducedViews) if (y >= s) v = s; return v; }
+/* The zoom at smoothed scroll position y: every scroll-linked value is a straight line of y. */
+function zoomAt(y) {
+  const M = MOTION, Z = M.zoomDistance, p = clamp(y, 0, Z) / Z;
+  return {
+    p,
+    cabin: M.cabinScale[0] + (M.cabinScale[1] - M.cabinScale[0]) * p,                // Z2
+    text: M.textScale[0] + (M.textScale[1] - M.textScale[0]) * p,                     // Z3
+    spread: M.textSpreadX * p,                                                         // Z4
+    sky: -M.skyRise * clamp(y, 0, Z),                                                  // Z5, stage px
+  };
+}
+function renderScrub(y) {
+  const M = MOTION, z = zoomAt(rm ? viewAt(y) : y), p = z.p;
+  el.cabin.style.transform = `translate3d(${(M.cabinShiftX * p).toFixed(3)}px,0,0) scale(${z.cabin.toFixed(5)})`;
+  el.text.style.transform = `scale(${z.text.toFixed(5)})`;
+  const sx = z.spread.toFixed(2);
+  el.tl.style.transform = `translate3d(${-sx}px,0,0)`; el.desc.style.transform = `translate3d(${-sx}px,0,0)`;
+  el.tr.style.transform = `translate3d(${sx}px,0,0)`; el.cue.style.transform = `translate3d(${sx}px,0,0)`;
+  el.sky.style.transform = `translate3d(0,${z.sky.toFixed(2)}px,0)`;
+  const q = logoEase(p), screenY = M.logoHeaderY + M.logoRise * (1 - q), sc = M.logoScaleFrom - (M.logoScaleFrom - 1) * q;
+  el.logo.style.transform = `translate3d(0,${((screenY - vh / 2) / k + 450 - 450).toFixed(2)}px,0) translate(0,-50%) scale(${(sc / k).toFixed(4)})`;
+}
+
+let inkP = -1;
+function renderInk(y) {                                                // Z8b: characters ink in with the scroll, both ways
+  const M = MOTION, p = rm ? 1 : clamp((y - leadTriggerY) / M.inkRange, 0, 1);
+  if (p === inkP) return; inkP = p;
+  const N = leadChars.length, q0 = p * (N + M.inkSoft);
+  for (let i = 0; i < N; i++) { const a = clamp((q0 - i) / M.inkSoft, 0, 1); leadChars[i].style.opacity = (M.inkFaint + (1 - M.inkFaint) * a).toFixed(3); }
+}
+/* One time step of dt ms for the smoothed scroll (Z1). Under reduced motion it lands at once. */
+function follow(dt) {
+  if (cur === target) return;
+  if (rm) { cur = target; return; }
+  cur += (target - cur) * (1 - Math.exp(-MOTION.lambda * dt / 1000));    // Z1: exponential damping
+  if (Math.abs(target - cur) < .05) cur = target;                       // at rest within 0.05 px
+}
+/* What a step changes besides the scroll: the lead starts once, and the intro ends. */
+function settle() {
+  if (leadT0 < 0 && cur >= leadTriggerY) leadT0 = simNow;
+  if (!loadDone && ready && simNow > cutAt + LOAD_TAIL) loadDone = true;
+}
+function frame(now) {
+  raf = 0;
+  const dt = Math.min(now - last, MOTION.maxStepMs); last = now;
+  simNow = simNow === null ? now : simNow + dt;                       // the first frame starts the page clock at its own time
+  if (cur !== target) { follow(dt); syncing = true; scrollTo(0, cur); syncing = false; }
+  renderScrub(cur); renderInk(cur);
+  if (leadT0 < 0 && cur >= leadTriggerY) leadT0 = simNow;
+  if (!loadDone) { renderLoad(simNow); if (ready && simNow > cutAt + LOAD_TAIL) loadDone = true; }
+  if (leadT0 >= 0 && simNow < leadT0 + MOTION.leadDur + 60) renderLoad(simNow);
+  more();
+}
+let loadDone = rm, syncing = false;
+/* The loop runs while anything moves or waits on the page clock (the intro, including its dark hold), then stops. */
+function more() {
+  const busy = cur !== target || !loadDone || (leadT0 >= 0 && simNow < leadT0 + MOTION.leadDur + 60);
+  if (busy) raf = requestAnimationFrame(frame);
+}
+function kick() { if (!raf && !seekMode) { last = performance.now() - 16.7; raf = requestAnimationFrame(frame); } }   // motion-kit:clock
+
+function clampTarget(v) { return clamp(v, 0, maxScroll); }
+addEventListener('wheel', e => {
+  if (e.ctrlKey || rm || seekMode) return;
+  e.preventDefault();
+  let dy = e.deltaY; if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= vh;
+  target = clampTarget(target + dy); kick();
+}, { passive: false });
+addEventListener('scroll', () => {                                      // keyboard, scrollbar, touch: follow the real scroll
+  if (syncing || seekMode) return;
+  if (rm) { cur = target = clamp(scrollY, 0, maxScroll); kick(); return; }   // reduced motion: no smoothing; renderScrub shows the view for it
+  if (Math.abs(scrollY - cur) > 1.5 && cur === target) { cur = target = scrollY; kick(); }
+  else if (cur === target) { cur = target = scrollY; }
+}, { passive: true });
+addEventListener('resize', () => { layout(); if (seekMode) return; target = cur = clamp(scrollY, 0, maxScroll); kick(); });
+
+/* ---------- start ---------- */
+function boot() {
+  layout();
+  renderScrub(0); renderInk(0);
+  el.introBg.style.setProperty('--veil', 'linear-gradient(to bottom,' + MOTION.veilStops.map(([y, a]) => `rgba(0,0,0,${a}) ${(y / 9).toFixed(2)}%`).join(',') + ')');
+  paintCabin(); paintSky(); paintStrip(); paintWisps();                  // queued, run in small slices
+  if (rm) {                                                              // the rest state at once: no intro
+    enqueue(() => { cutAt = 0; ready = true; renderLoad(1e9); const m = MOTION; el.panel.style.transform = `translate3d(0,${-m.shadeLift}px,0) scaleY(${1 - m.shadeSquash})`; el.rail.style.transform = `translate3d(0,${-m.railTravel}px,0)`; el.shadow.style.opacity = 1; return true; });
+    return;
+  }
+  if (seekMode) { window.__seek(0); return; }                         // the fixed clock counts the art as drawn
+  target = cur = 0; scrollTo(0, 0);
+  enqueue(() => { cutAt = Math.max(MOTION.S, (simNow ?? 0) + 60); ready = true; kick(); return true; });   // the page waits if the art is late
+  kick();
+}
+
+/* ---------- the fixed clock (?seek) ----------
+   __seek(ms) re-runs the page from 0 to ms on the page clock: one step at every whole 1/60 s, then one shorter step for
+   the rest, and draws that frame. On the way it plays window.__input, the recorded scroll samples [ms, y]: from each
+   sample's time on, the scroll target is y, where the wheel ticks put it, so a step moves toward the target set at its
+   start. The state at a time depends on the scroll before it, as in the live page. The art counts as drawn from the
+   start, so the cut lands at S. */
+const FRAME = 1000 / 60;
+const strips = [$('strip'), $('wisp')];
+window.__seek = (ms) => {
+  cur = target = 0; simNow = 0; leadT0 = -1; loadDone = rm; inkP = -1; ready = true; cutAt = rm ? 0 : MOTION.S;
+  const input = Array.isArray(window.__input) ? window.__input : [];
+  let cursor = 0;
+  const feed = (t) => { for (; cursor < input.length && input[cursor][0] <= t + 1e-9; cursor++) target = clampTarget(input[cursor][1]); };
+  const stepTo = (t) => { feed(simNow); follow(t - simNow); simNow = t; settle(); };
+  settle();
+  const n = Math.floor(ms / FRAME + 1e-9);
+  for (let i = 1; i <= n; i++) stepTo((i * 1000) / 60);
+  if (ms - simNow > 1e-9) stepTo(ms);
+  feed(ms);
+  scrollTo(0, cur);
+  renderScrub(cur); renderInk(cur); renderLoad(rm ? 1e9 : simNow);
+  if (!rm) for (const s of strips) { s.style.animationPlayState = 'paused'; s.style.animationDelay = `${-(simNow / 1000)}s`; }   // I1 on the page clock
+};
+/* The intro at page time t, from the same tweens renderLoad draws: tagline is the opacity of the second big tagline line,
+   header is the header's offset in px, and title is the opacity of the last headline character, the last thing to settle. */
+function introAt(t) {
+  const M = MOTION, S = ready ? cutAt : 1e9;
+  const pin = tw(t, M.introStart[3], M.introDur, M.introEase), pout = tw(t, S + M.introOutStart[3], M.introOutDur, M.introOutEase);
+  return {
+    tagline: pin * (1 - pout),
+    header: M.navFrom * (1 - tw(t, S + M.navStart, M.navDur, M.navEase)),
+    title: tw(t, S + M.charStart + lastChar * M.charStagger, M.charDur, M.charEase),
+  };
+}
+/* The state read, from the page's own state: scroll is the smoothed scroll position (scroll px); cabin and text are the
+   scales of the cabin layer and the text plane; sky is how far the sky layer has risen, in px of the 1440 x 900 stage.
+   Under reduced motion cabin, text and sky are the still view's (Z10).
+   tagline, header and title follow the intro on the page clock (see introAt). */
+window.__state = () => {
+  const z = zoomAt(rm ? viewAt(cur) : cur), i = introAt(rm ? 1e9 : simNow ?? 0);
+  return {
+    values: { scroll: cur, cabin: z.cabin, text: z.text, sky: z.sky, tagline: i.tagline, header: i.header, title: i.title },
+    events: {},
+    units: { scroll: 'px', cabin: 'scale', text: 'scale', sky: 'px', tagline: 'opacity', header: 'px', title: 'opacity' },
+  };
+};
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+</script>
+</body>
+</html>

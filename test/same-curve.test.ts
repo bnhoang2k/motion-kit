@@ -8,9 +8,10 @@ import { resolve } from "../src/core/merge.ts";
 import { springProgress } from "../src/core/spring.ts";
 import { tx } from "../src/core/tx.ts";
 import { transition } from "../src/motion/index.ts";
+import { findBlender } from "../scripts/blender-path.mjs";
 import { readTranslationX } from "./glb.ts";
 
-const BLENDER = process.env.BLENDER ?? "/Applications/Blender.app/Contents/MacOS/Blender";
+const BLENDER = findBlender() ?? ""; // "" when none is found: the Blender tests skip
 const TOL = 0.01; // 1 % of the distance: how close every engine must stay
 const cfg = resolve();
 const CASES = [["whimsical", "move"], ["sleek", "enter"], ["calm", "move"]] as const;

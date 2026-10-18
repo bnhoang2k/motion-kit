@@ -6,3 +6,5 @@ export * from "./validate.ts";
 export * from "./merge.ts";
 export * from "./tx.ts";
 export * from "./fit.ts";
+export * from "./kinds.ts";
+export * from "./knob.ts";

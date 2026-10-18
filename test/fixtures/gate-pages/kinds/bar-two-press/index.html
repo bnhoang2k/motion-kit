@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="bar-two-press">
+<title>bar: two presses, regrab ignored</title>
+<style>body { margin: 0 } #dot { position: fixed; left: 620px; top: 340px; width: 40px; height: 40px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<script>
+// A copied live bar whose trace.json input holds two presses. The second press drags the dot far
+// left and down and lets go just before 3000 ms, so the page's frame there sits far from rest. The page
+// ignores a press while the dot settles, so a regrab mid-settle grabs nothing.
+window.FAULT = "regrab-ignored";
+</script>
+<script src="../live.js"></script>
+</body>
+</html>

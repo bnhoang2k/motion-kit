@@ -75,7 +75,7 @@ describe("validate", () => {
   });
 
   it("rejects a surface that points at an unknown feel", () => {
-    expect(bad((c) => (c.use = { station: "nope" }))).toEqual(['use.station: unknown feel "nope"']);
+    expect(bad((c) => (c.use = { sidebar: "nope" }))).toEqual(['use.sidebar: unknown feel "nope"']);
   });
 });
 
@@ -84,7 +84,7 @@ describe("validateOverrides", () => {
 
   it("accepts a good override and an empty one", () => {
     expect(validateOverrides({})).toEqual([]);
-    expect(validateOverrides({ version: 1, reducedFade: 0.2, feels: { calm: { stagger: 0.05, moves: { tap: { bounce: 0.1 } } } }, use: { station: "calm" } })).toEqual([]);
+    expect(validateOverrides({ version: 1, reducedFade: 0.2, feels: { calm: { stagger: 0.05, moves: { tap: { bounce: 0.1 } } } }, use: { sidebar: "calm" } })).toEqual([]);
   });
 
   it("names a misspelled move key", () => {
@@ -134,8 +134,8 @@ describe("validateOverrides", () => {
     expect(validateOverrides({ feels: { calm: { stagger: null } } })).toEqual(["feels.calm.stagger: must be a number, got null"]);
     expect(validateOverrides({ feels: { calm: { describe: 3 } } })).toEqual(["feels.calm.describe: must be a string, got 3"]);
     expect(validateOverrides({ feels: { calm: { extends: 3 } } })).toEqual(["feels.calm.extends: must be a string, got 3"]);
-    expect(validateOverrides({ version: 2 })).toEqual(["version: expected 1, got 2"]);
-    expect(validateOverrides({ use: { station: 3 } })).toEqual(["use.station: must be a string, got 3"]);
+    expect(validateOverrides({ version: 3 })).toEqual(["version: expected 1 or 2, got 3"]);
+    expect(validateOverrides({ use: { sidebar: 3 } })).toEqual(["use.sidebar: must be a string, got 3"]);
     expect(validateOverrides({ feels: { calm: { moves: { tap: { reduced: "slow" } } } } })).toEqual(['feels.calm.moves.tap.reduced: must be "instant" or "fade"']);
   });
 
@@ -200,10 +200,10 @@ describe("resolve", () => {
   });
 
   it("builds a project feel from extends", () => {
-    const c = resolve({ feels: { "demo-guest": { extends: "whimsical", moves: { tap: { bounce: 0.25 } } } }, use: { guest: "demo-guest" } });
-    expect(c.feels["demo-guest"]!.moves.tap.bounce).toBe(0.25);
-    expect(c.feels["demo-guest"]!.moves.enter).toEqual(DEFAULTS.feels.whimsical!.moves.enter);
-    expect(c.use).toEqual({ guest: "demo-guest" });
+    const c = resolve({ feels: { "demo-playful": { extends: "whimsical", moves: { tap: { bounce: 0.25 } } } }, use: { dialog: "demo-playful" } });
+    expect(c.feels["demo-playful"]!.moves.tap.bounce).toBe(0.25);
+    expect(c.feels["demo-playful"]!.moves.enter).toEqual(DEFAULTS.feels.whimsical!.moves.enter);
+    expect(c.use).toEqual({ dialog: "demo-playful" });
   });
 
   it("throws with every problem listed", () => {
@@ -250,7 +250,7 @@ describe("resolve", () => {
 });
 
 describe("tx", () => {
-  const cfg = resolve({ use: { station: "calm", guest: "whimsical" } });
+  const cfg = resolve({ use: { sidebar: "calm", dialog: "whimsical" } });
 
   it("keeps bounce only when a touch caused the move", () => {
     expect(tx(cfg, "whimsical", "tap", { byTouch: true }).bounce).toBe(0.35);
@@ -258,7 +258,7 @@ describe("tx", () => {
   });
 
   it("resolves a surface name through use", () => {
-    expect(feelFor(cfg, "guest")).toBe(cfg.feels.whimsical);
+    expect(feelFor(cfg, "dialog")).toBe(cfg.feels.whimsical);
   });
 
   it("carries amount and reduced", () => {
@@ -269,7 +269,7 @@ describe("tx", () => {
     expect(flatTx(cfg, "whimsical", "enter")).toEqual({ visualDuration: 0.48, bounce: 0 });
   });
 
-  it("reads stagger", () => expect(staggerOf(cfg, "guest")).toBe(0.065));
+  it("reads stagger", () => expect(staggerOf(cfg, "dialog")).toBe(0.065));
 
   it("throws on an unknown feel", () => {
     expect(() => tx(cfg, "nope", "tap", { byTouch: true })).toThrow('unknown feel or surface "nope"');

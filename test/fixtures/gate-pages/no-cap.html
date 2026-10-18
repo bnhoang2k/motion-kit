@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>no cap</title>
+<style>body { margin: 0 } #dot { width: 40px; height: 40px; border-radius: 50%; background: #333; opacity: 0 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<script>
+// Planted fault: the live loop has no time-step cap, so a long frame gap moves the dot in one jump.
+// One dot follows a target. Every motion step goes through step(h), so the fixed clock and the
+// live loop run the same code. The live loop takes the whole real time step.
+const TAU = 0.25, TARGET = 200, H = 1 / 60;
+const dot = document.getElementById("dot");
+let S;
+function reset() { S = { t: 0, x: 0, o: 0, rest: null }; }
+function step(h) {
+  S.t += h;
+  const k = 1 - Math.exp(-h / TAU);
+  S.x += (TARGET - S.x) * k;
+  S.o += (1 - S.o) * k;
+  if (S.rest === null && TARGET - S.x < 0.01) S.rest = S.t * 1000;
+}
+function draw() { dot.style.transform = `translateX(${S.x}px)`; dot.style.opacity = String(S.o); }
+window.__seek = (ms) => {
+  reset();
+  const n = Math.floor(ms * 60 / 1000 + 1e-6);
+  for (let i = 0; i < n; i++) step(H);
+  const rest = ms / 1000 - n * H;
+  if (rest > 1e-9) step(rest);
+  draw();
+};
+window.__state = () => ({ values: { x: S.x, o: S.o }, events: S.rest === null ? {} : { rest: S.rest } });
+reset();
+draw();
+if (!new URLSearchParams(location.search).has("seek")) {
+  let last = null;
+  const frame = (now) => {
+    const h = last === null ? 0 : (now - last) / 1000;
+    last = now;
+    step(h);
+    draw();
+    if (S.rest === null) requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

@@ -81,6 +81,8 @@ export function resolve(input: unknown = {}, source = "motion.json"): MotionConf
     reducedFade: overrides.reducedFade ?? DEFAULTS.reducedFade,
     feels,
     ...(overrides.use ? { use: { ...overrides.use } } : {}),
+    // Overrides only: a knob reader falls back to the base for any knob not named here.
+    ...(overrides.kinds ? { kinds: structuredClone(overrides.kinds) } : {}),
   };
   problems.push(...validate(out));
   if (problems.length) throw new MotionConfigError(problems, source);

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>follow pointer no cap</title>
+<style>body { margin: 0; height: 3000px } #dot { width: 40px; height: 40px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<script>
+// Planted fault: the live loop has no time-step cap, so a long frame gap moves the dot in one jump.
+// One dot follows the pointer's x while the pointer is down. It moves only on input: the live
+// loop runs while the dot is away from its target. Under ?seek, the target comes from
+// window.__input, pointer samples [ms, x, y]. The live loop takes the whole real time step.
+const TAU = 0.25, H = 1 / 60;
+const dot = document.getElementById("dot");
+let S;
+function reset() { S = { t: 0, x: 0, target: 0 }; }
+function step(h) {
+  S.t += h;
+  S.x += (S.target - S.x) * (1 - Math.exp(-h / TAU));
+}
+function draw() { dot.style.transform = `translateX(${S.x}px)`; }
+function targetAt(ms) {
+  let x = S.target;
+  for (const [t, px] of window.__input || []) if (t <= ms) x = px;
+  return x;
+}
+window.__seek = (ms) => {
+  reset();
+  const n = Math.floor(ms * 60 / 1000 + 1e-6);
+  for (let i = 0; i < n; i++) { S.target = targetAt(S.t * 1000); step(H); }
+  const rest = ms / 1000 - n * H;
+  if (rest > 1e-9) { S.target = targetAt(S.t * 1000); step(rest); }
+  draw();
+};
+window.__state = () => ({ values: { x: S.x }, events: {} });
+reset();
+draw();
+if (!new URLSearchParams(location.search).has("seek")) {
+  let last = null, running = false, down = false;
+  const frame = (now) => {
+    const h = last === null ? 0 : (now - last) / 1000;
+    last = now;
+    step(h);
+    draw();
+    if (down || Math.abs(S.target - S.x) > 0.01) requestAnimationFrame(frame);
+    else { running = false; last = null; }
+  };
+  const wake = () => { if (!running) { running = true; requestAnimationFrame(frame); } };
+  addEventListener("pointerdown", (e) => { down = true; S.target = e.clientX; wake(); });
+  addEventListener("pointermove", (e) => { if (down) { S.target = e.clientX; wake(); } });
+  addEventListener("pointerup", () => { down = false; wake(); });
+}
+</script>
+</body>
+</html>

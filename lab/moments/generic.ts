@@ -106,7 +106,7 @@ const attention: Moment = {
   move: "attention",
   label: "Attention",
   mount(stage) {
-    const el = piece(stage, "T4", { left: "calc(50% - 24px)", top: "24px", width: "48px", height: "48px" });
+    const el = piece(stage, "3", { left: "calc(50% - 24px)", top: "24px", width: "48px", height: "48px" });
     return { play: (ctx) => void go(el, { scale: ctx.amount }, ctx).then(() => go(el, { scale: 1 }, ctx)) };
   },
 };
@@ -115,7 +115,7 @@ const celebrate: Moment = {
   move: "celebrate",
   label: "Celebrate",
   mount(stage) {
-    const el = piece(stage, "Paid", { left: "calc(50% - 40px)", top: "28px", width: "80px", height: "40px" });
+    const el = piece(stage, "Done", { left: "calc(50% - 40px)", top: "28px", width: "80px", height: "40px" });
     return {
       play(ctx) {
         void animate(el, { scale: 0.6, opacity: 0 }, { duration: 0 });

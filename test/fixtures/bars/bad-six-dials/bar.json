@@ -1,0 +1,88 @@
+{
+  "slug": "bad-six-dials",
+  "title": "Fixture bar",
+  "kinds": [
+    "idle"
+  ],
+  "moments": [
+    "idle-stretch"
+  ],
+  "rung": [
+    1,
+    2
+  ],
+  "fits": "A calm loop behind a short block of text.",
+  "wrongFor": "Anything the visitor must act on.",
+  "feel": "One slow 4 s loop. It rests a quarter of each cycle.",
+  "dials": [
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    },
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    },
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    },
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    },
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    },
+    {
+      "path": "loop.periodS",
+      "value": 4,
+      "unit": "s",
+      "knob": "idle.period",
+      "row": "Row 1"
+    }
+  ],
+  "assetContract": {
+    "dot": {
+      "draw": ".dot",
+      "aspect": "1:1",
+      "view": "front",
+      "facing": "none",
+      "background": "cutout"
+    }
+  },
+  "clock": "__seek",
+  "trace": [
+    {
+      "name": "dotY",
+      "tolerance": 0.5
+    },
+    {
+      "name": "opacity",
+      "tolerance": 0.01
+    }
+  ],
+  "faults": [
+    {
+      "name": "half period",
+      "find": "240 / 60",
+      "replace": "120 / 60"
+    }
+  ]
+}

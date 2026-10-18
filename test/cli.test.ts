@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, type CliIo } from "../src/cli/run.ts";
 
@@ -24,9 +26,9 @@ describe("motion-kit CLI", () => {
   });
 
   it("resolve --out writes the merged config", () => {
-    const t = io({ "/proj/motion.json": JSON.stringify({ use: { station: "calm" } }) });
+    const t = io({ "/proj/motion.json": JSON.stringify({ use: { sidebar: "calm" } }) });
     expect(run(["resolve", "--out", "motion.resolved.json"], t.api)).toBe(0);
-    expect(JSON.parse(t.written["/proj/motion.resolved.json"]!).use).toEqual({ station: "calm" });
+    expect(JSON.parse(t.written["/proj/motion.resolved.json"]!).use).toEqual({ sidebar: "calm" });
   });
 
   it("names the file when JSON is broken", () => {
@@ -79,5 +81,161 @@ describe("motion-kit CLI", () => {
     const t = io({ "/proj/motion.json": JSON.stringify({ feels: { calm: { stager: 0.1 } } }) });
     expect(run(["validate"], t.api)).toBe(1);
     expect(t.err.join("")).toMatch("feels.calm.stager: unknown key");
+  });
+
+  describe("v2 knobs", () => {
+    const v2 = (kinds: unknown) => io({ "/proj/motion.json": JSON.stringify({ version: 2, kinds }) });
+
+    it("validate prints one distance line per overridden knob and exits 0", () => {
+      const t = v2({ idle: { period: 60 }, live: { release: { visualDuration: 0.5, bounce: 0.2 } } });
+      expect(run(["validate"], t.api)).toBe(0);
+      const text = t.out.join("");
+      expect(text).toContain("idle.period 60.0 s, 1400% above base");
+      expect(text).toContain("live.release.visualDuration");
+      expect(text).toContain("live.release.bounce");
+    });
+
+    it("validate on a file with no kinds prints only the valid line", () => {
+      const t = io({ "/proj/motion.json": JSON.stringify({ version: 2 }) });
+      expect(run(["validate"], t.api)).toBe(0);
+      expect(t.out.join("")).toBe("/proj/motion.json is valid.\n");
+    });
+
+    it("knobs prints the marker and a block that evals to the bases", () => {
+      const t = io();
+      expect(run(["knobs", "idle", "scroll"], t.api)).toBe(0);
+      const text = t.out.join("");
+      expect(text.split("\n")[0]).toBe("/* motion-kit:knobs */");
+      expect(new Function(`${text}\nreturn KNOBS;`)()).toEqual({ idle: { period: 4 }, scroll: { smooth: expect.closeTo(1 / 6, 9), maxStep: 0.05 } });
+    });
+
+    it("knobs reads the file named by --in, not ./motion.json", () => {
+      const t = io({
+        "/proj/motion.json": JSON.stringify({ version: 2, kinds: { idle: { period: 9 } } }),
+        "/proj/custom.json": JSON.stringify({ version: 2, kinds: { idle: { period: 60 } } }),
+      });
+      expect(run(["knobs", "idle", "--in", "custom.json"], t.api)).toBe(0);
+      expect(new Function(`${t.out.join("")}\nreturn KNOBS;`)()).toEqual({ idle: { period: 60 } });
+    });
+
+    it("knobs with no --in reads ./motion.json when it exists", () => {
+      const t = v2({ idle: { period: 9 } });
+      expect(run(["knobs", "idle"], t.api)).toBe(0);
+      expect(new Function(`${t.out.join("")}\nreturn KNOBS;`)()).toEqual({ idle: { period: 9 } });
+    });
+
+    it("knobs prints a spring knob as an object", () => {
+      const t = io();
+      expect(run(["knobs", "live"], t.api)).toBe(0);
+      const live = new Function(`${t.out.join("")}\nreturn KNOBS;`)().live;
+      expect(Object.keys(live)).toEqual(["release"]);
+      expect(live.release).toHaveProperty("visualDuration");
+      expect(live.release).toHaveProperty("bounce");
+    });
+
+    it("knobs prints a known kind with no fields as {}, exit 0", () => {
+      const t = io();
+      expect(run(["knobs", "choreo", "sim"], t.api)).toBe(0);
+      expect(new Function(`${t.out.join("")}\nreturn KNOBS;`)()).toEqual({ choreo: {}, sim: {} });
+    });
+
+    it("knobs exits 2 on an unknown kind and on no kind", () => {
+      const a = io();
+      expect(run(["knobs", "oneshot"], a.api)).toBe(2);
+      expect(a.err.join("")).toMatch(/Unknown kind: oneshot\. Kinds: live, idle/);
+      const b = io();
+      expect(run(["knobs"], b.api)).toBe(2);
+      expect(b.err.join("")).toMatch(/Name at least one kind/);
+    });
+
+    it("usage lists the knobs command", () => {
+      const t = io();
+      run(["frobnicate"], t.api);
+      expect(t.err.join("")).toMatch(/motion-kit knobs <kind>\.\.\./);
+    });
+  });
+
+  describe("gate", () => {
+    const PAGE = '<!doctype html><meta name="motion-kit-kind" content="idle">';
+
+    it("exits 2 with the install line when Playwright is missing", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      let asked = 0;
+      const missing = async () => {
+        asked++;
+        return null;
+      };
+      expect(await run(["gate", "page.html"], t.api, { playwrightOrNull: missing })).toBe(2);
+      expect(asked).toBe(1);
+      expect(t.err.join("")).toBe("motion-kit gate needs Playwright: pnpm add -D playwright && pnpm exec playwright install chromium\n");
+      expect(t.out.join("")).toBe("");
+    });
+
+    const launches = (launch: () => Promise<{ close(): Promise<void> }>) => async () => ({ chromium: { launch } });
+    const opens = launches(async () => ({ close: async () => undefined }));
+
+    it("exits 2 with the install line when Playwright is there but its Chromium is not", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      const noChromium = launches(async () => {
+        throw new Error("browserType.launch: Executable doesn't exist\nlong install hint");
+      });
+      expect(await run(["gate", "page.html"], t.api, { playwrightOrNull: noChromium })).toBe(2);
+      expect(t.err.join("")).toBe("motion-kit gate needs Playwright: pnpm add -D playwright && pnpm exec playwright install chromium\n");
+    });
+
+    it("prints one line and exits 2 when the gate throws, never a stack trace", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      const broken = async () => {
+        throw new Error("Cannot find module kinds/live/gate.js\n    at import (node:internal)");
+      };
+      expect(await run(["gate", "page.html"], t.api, { playwrightOrNull: opens, kindGate: broken })).toBe(2);
+      expect(t.err.join("")).toBe("motion-kit gate could not run: Cannot find module kinds/live/gate.js\n");
+      expect(t.out.join("")).toBe("");
+    });
+
+    it("prints the distance lines, then the verdict, and exits by the verdict", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      const gate = async () => ({ status: "failed" as const, failures: ["reverses: p stays"], distances: ["idle.period 6.0 s, 50% above base (31-breath-pacer: 4.0 s)"] });
+      expect(await run(["gate", "page.html"], t.api, { playwrightOrNull: opens, kindGate: gate })).toBe(1);
+      expect(t.out.join("")).toBe("idle.period 6.0 s, 50% above base (31-breath-pacer: 4.0 s)\nfailed: 1\n");
+      expect(t.err.join("")).toBe("reverses: p stays\n");
+    });
+
+    it("exits 2 on a page it cannot read, before it looks for Playwright", async () => {
+      const t = io();
+      const never = async () => {
+        throw new Error("not reached");
+      };
+      expect(await run(["gate", "nope.html"], t.api, { playwrightOrNull: never })).toBe(2);
+      expect(t.err.join("")).toBe("Cannot read nope.html.\n");
+    });
+
+    it("exits 2 with the usage unless it gets exactly one page", async () => {
+      for (const args of [["gate"], ["gate", "a.html", "b.html"], ["gate", "--in", "x", "a.html"]]) {
+        const t = io();
+        expect(await run(args, t.api)).toBe(2);
+        expect(t.err.join("")).toMatch(/motion-kit gate <page\.html>/);
+      }
+    });
+  });
+});
+
+describe("the motion-kit command on disk", () => {
+  const ROOT = path.resolve(import.meta.dirname, "..");
+  /** Runs src/cli/motion-kit.ts in `cwd` and returns its exit code and output. */
+  const cli = (args: string[], cwd = ROOT) => {
+    const r = spawnSync(process.execPath, [path.join(ROOT, "src/cli/motion-kit.ts"), ...args], { cwd, encoding: "utf8", timeout: 30_000 });
+    return { code: r.status, out: r.stdout, err: r.stderr };
+  };
+
+  it("exits 2 with one line when gate or validate --in names a folder", () => {
+    expect(cli(["gate", "test/fixtures"])).toEqual({ code: 2, out: "", err: "Cannot read test/fixtures.\n" });
+    expect(cli(["validate", "--in", "test/fixtures"])).toEqual({ code: 2, out: "", err: `Cannot read ${path.join(ROOT, "test/fixtures")}.\n` });
+  });
+
+  it("validate-bar reads the folder from the working folder and the kit files from the kit", () => {
+    const real = path.join(ROOT, "bars/31-breath-pacer");
+    expect(cli(["validate-bar", "."], real)).toEqual({ code: 0, out: ". is valid.\n", err: "" });
+    expect(cli(["validate-bar", "31-breath-pacer"], path.join(ROOT, "bars"))).toEqual({ code: 0, out: "31-breath-pacer is valid.\n", err: "" });
   });
 });

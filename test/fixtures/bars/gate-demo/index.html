@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="gate-demo">
+<title>Gate demo</title>
+<style>
+body { margin: 0 }
+#dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333 }
+#halo { position: fixed; left: 590px; top: 310px; width: 60px; height: 60px; border-radius: 50%; box-shadow: 0 0 0 4px #333; opacity: 0 }
+</style>
+</head>
+<body>
+<div id="halo"></div>
+<div id="dot"></div>
+<script>
+// A tiny bar for the bar gate. A dot fades in at load, then loops: it rests, lifts and dims, holds,
+// and settles back. A halo brightens with the lift. The state is a pure function of the page clock
+// T, so ?seek only sets T. The live loop pauses while the page is hidden.
+const MOTION = {
+  loop: { periodS: 2.4 },
+  enterS: 0.3,
+  lift: { atS: 0.6, riseS: 0.4, holdS: 0.3, fallS: 0.5, px: 24, ease: [0.42, 0, 0.58, 1] },
+  dim: 0.55,
+  halo: 0.6,
+  maxStepS: 0.05,
+};
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const seekMode = new URLSearchParams(location.search).has("seek");
+const dot = document.getElementById("dot");
+const halo = document.getElementById("halo");
+const clamp = (p) => Math.min(1, Math.max(0, p));
+// A CSS cubic-bezier easing: solve x(u) = p for u by bisection, then return y(u).
+function bezier([x1, y1, x2, y2], p) {
+  const at = (a, b, u) => 3 * a * u * (1 - u) ** 2 + 3 * b * u * u * (1 - u) + u ** 3;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (at(x1, x2, mid) < p) lo = mid; else hi = mid;
+  }
+  return at(y1, y2, (lo + hi) / 2);
+}
+const ease = (p) => bezier(MOTION.lift.ease, clamp(p));
+// How far into the lift the cycle is: 0 at rest, 1 at the top.
+function share(ph) {
+  const { atS, riseS, holdS, fallS } = MOTION.lift;
+  if (ph < atS + riseS) return ease((ph - atS) / riseS);
+  return 1 - ease((ph - atS - riseS - holdS) / fallS);
+}
+const ms = (s) => Math.round(s * 1000);
+function valuesAt(T) {
+  if (reduced) return { y: 0, o: 1, h: 0 };
+  const s = share(T % MOTION.loop.periodS);
+  const enter = (1 - Math.cos(Math.PI * clamp(T / MOTION.enterS))) / 2;
+  return { y: -MOTION.lift.px * s, o: enter * (1 - (1 - MOTION.dim) * s), h: MOTION.halo * s };
+}
+function eventsAt(T) {
+  const { atS, riseS, holdS, fallS } = MOTION.lift;
+  const out = {};
+  if (T >= atS) out.lift = ms(atS);
+  if (T >= atS + riseS + holdS + fallS) out.settle = ms(atS + riseS + holdS + fallS);
+  return out;
+}
+let T = 0;
+function draw() {
+  const v = valuesAt(T);
+  dot.style.transform = `translateY(${v.y}px)`;
+  dot.style.opacity = String(v.o);
+  halo.style.opacity = String(v.h);
+}
+window.__seek = (t) => { T = t / 1000; draw(); };
+window.__state = () => {
+  const { y, o } = valuesAt(T);
+  return { values: { y, o }, events: eventsAt(T), units: { y: "px", o: "opacity" } };
+};
+draw();
+if (!seekMode && !reduced) {
+  let last = null, raf = 0;
+  const frame = (now) => {
+    const h = last === null ? 0 : Math.min((now - last) / 1000, MOTION.maxStepS);
+    last = now;
+    T += h;
+    draw();
+    raf = requestAnimationFrame(frame);
+  };
+  const start = () => { if (!raf) { last = null; raf = requestAnimationFrame(frame); } };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; }
+    else start();
+  });
+  start();
+}
+</script>
+</body>
+</html>

@@ -3,11 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DEFAULTS } from "../dist/src/core/index.js";
+import { findBlender } from "./blender-path.mjs";
 
 // Bakes one GLB per default feel for the Lab's Blender lane. Run after `pnpm build`.
-const BLENDER = process.env.BLENDER ?? "/Applications/Blender.app/Contents/MacOS/Blender";
-if (!existsSync(BLENDER)) {
-  console.error(`Blender not found at ${BLENDER}. Set BLENDER to its path.`);
+const BLENDER = findBlender();
+if (!BLENDER || !existsSync(BLENDER)) {
+  console.error(`Blender not found${BLENDER ? ` at ${BLENDER}` : ""}. Set BLENDER to its path.`);
   process.exit(2);
 }
 const dir = mkdtempSync(path.join(tmpdir(), "motion-kit-sample-"));

@@ -50,7 +50,7 @@ describe("POST /api/save", () => {
 
   it("a parent drag, then Save twice, leaves the child inherited and motion.json byte-identical", async () => {
     const { port, file } = await start();
-    const existing = { feels: { "demo-guest": { extends: "whimsical", stagger: 0.07 } } };
+    const existing = { feels: { "demo-playful": { extends: "whimsical", stagger: 0.07 } } };
     writeFileSync(file, `${JSON.stringify(existing, null, 2)}\n`);
     const s = createLabState(existing);
     for (const v of [0.1, 0.2, 0.3]) edit(s, "whimsical", ["moves", "tap", "bounce"], v);
@@ -61,8 +61,8 @@ describe("POST /api/save", () => {
       return readFileSync(file, "utf8");
     };
     const first = await saveOnce();
-    expect(JSON.parse(first).feels["demo-guest"]).toEqual({ extends: "whimsical", stagger: 0.07 });
-    expect(resolve(JSON.parse(first)).feels["demo-guest"]!.moves.tap.bounce).toBe(0.3);
+    expect(JSON.parse(first).feels["demo-playful"]).toEqual({ extends: "whimsical", stagger: 0.07 });
+    expect(resolve(JSON.parse(first)).feels["demo-playful"]!.moves.tap.bounce).toBe(0.3);
     expect(await saveOnce()).toBe(first);
   });
 

@@ -1,0 +1,13 @@
+[
+  {
+    "knob": "live.release",
+    "value": { "visualDuration": 0.235325292404, "bounce": 0.16 },
+    "unit": "s,ratio",
+    "bar": "13-drag-past-a-threshold",
+    "path": ["springOmega", "springZeta"],
+    "from": { "springOmega": 22.25, "springZeta": 0.84 },
+    "convert": "fromPhysics",
+    "row": "Row 5",
+    "base": true
+  }
+]

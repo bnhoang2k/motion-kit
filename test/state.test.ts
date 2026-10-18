@@ -6,7 +6,7 @@ import { adopt, config, createLabState, edit, overrides, type LabState } from ".
 
 const TAP_BOUNCE = ["moves", "tap", "bounce"] as const;
 const STAGGER = ["stagger"] as const;
-const demo = (): Overrides => ({ feels: { "demo-guest": { extends: "whimsical", stagger: 0.07 } } });
+const demo = (): Overrides => ({ feels: { "demo-playful": { extends: "whimsical", stagger: 0.07 } } });
 
 /** What the Lab's Save does: send the overrides, the server checks and writes them, the Lab adopts what came back. */
 function save(s: LabState): string {
@@ -24,16 +24,16 @@ describe("Lab state", () => {
     for (const v of [0.1, 0.2, 0.3]) {
       edit(s, "whimsical", TAP_BOUNCE, v);
       expect(bounce(s, "whimsical")).toBe(v);
-      expect(bounce(s, "demo-guest")).toBe(v);
+      expect(bounce(s, "demo-playful")).toBe(v);
     }
     const first = save(s);
     expect(JSON.parse(first)).toEqual({
-      feels: { "demo-guest": { extends: "whimsical", stagger: 0.07 }, whimsical: { moves: { tap: { bounce: 0.3 } } } },
+      feels: { "demo-playful": { extends: "whimsical", stagger: 0.07 }, whimsical: { moves: { tap: { bounce: 0.3 } } } },
     });
     expect(save(s)).toBe(first);
-    expect(bounce(s, "demo-guest")).toBe(0.3);
+    expect(bounce(s, "demo-playful")).toBe(0.3);
     edit(s, "whimsical", TAP_BOUNCE, 0.25);
-    expect(bounce(s, "demo-guest")).toBe(0.25);
+    expect(bounce(s, "demo-playful")).toBe(0.25);
   });
 
   it("a child set back to its own value after a parent edit keeps that value and owns it", () => {
@@ -41,26 +41,26 @@ describe("Lab state", () => {
     edit(s, "whimsical", TAP_BOUNCE, 0.1);
     edit(s, "whimsical", STAGGER, 0.1);
     // tap bounce was inherited (0.35 at load); stagger was in the file (0.07).
-    edit(s, "demo-guest", TAP_BOUNCE, 0.35);
-    edit(s, "demo-guest", STAGGER, 0.09);
-    edit(s, "demo-guest", STAGGER, 0.07);
-    expect(bounce(s, "demo-guest")).toBe(0.35);
-    expect(config(s).feels["demo-guest"]!.stagger).toBe(0.07);
-    expect(overrides(s).feels!["demo-guest"]).toEqual({ extends: "whimsical", stagger: 0.07, moves: { tap: { bounce: 0.35 } } });
+    edit(s, "demo-playful", TAP_BOUNCE, 0.35);
+    edit(s, "demo-playful", STAGGER, 0.09);
+    edit(s, "demo-playful", STAGGER, 0.07);
+    expect(bounce(s, "demo-playful")).toBe(0.35);
+    expect(config(s).feels["demo-playful"]!.stagger).toBe(0.07);
+    expect(overrides(s).feels!["demo-playful"]).toEqual({ extends: "whimsical", stagger: 0.07, moves: { tap: { bounce: 0.35 } } });
     edit(s, "whimsical", TAP_BOUNCE, 0.2);
     edit(s, "whimsical", STAGGER, 0.12);
-    expect(bounce(s, "demo-guest")).toBe(0.35);
-    expect(config(s).feels["demo-guest"]!.stagger).toBe(0.07);
+    expect(bounce(s, "demo-playful")).toBe(0.35);
+    expect(config(s).feels["demo-playful"]!.stagger).toBe(0.07);
   });
 
   it("a child set equal to its parent's current value drops the key and follows later parent edits", () => {
-    const s = createLabState({ feels: { "demo-guest": { extends: "whimsical", stagger: 0.07, moves: { tap: { bounce: 0.2 } } } } });
+    const s = createLabState({ feels: { "demo-playful": { extends: "whimsical", stagger: 0.07, moves: { tap: { bounce: 0.2 } } } } });
     edit(s, "whimsical", TAP_BOUNCE, 0.25);
-    edit(s, "demo-guest", TAP_BOUNCE, 0.25);
-    expect(overrides(s).feels!["demo-guest"]).toEqual({ extends: "whimsical", stagger: 0.07 });
+    edit(s, "demo-playful", TAP_BOUNCE, 0.25);
+    expect(overrides(s).feels!["demo-playful"]).toEqual({ extends: "whimsical", stagger: 0.07 });
     edit(s, "whimsical", TAP_BOUNCE, 0.3);
-    expect(bounce(s, "demo-guest")).toBe(0.3);
-    expect(overrides(s).feels!["demo-guest"]).toEqual({ extends: "whimsical", stagger: 0.07 });
+    expect(bounce(s, "demo-playful")).toBe(0.3);
+    expect(overrides(s).feels!["demo-playful"]).toEqual({ extends: "whimsical", stagger: 0.07 });
   });
 
   it("keeps a chain inherited when calm is dragged, in either key order", () => {
@@ -87,9 +87,9 @@ describe("Lab state", () => {
     edit(fresh, "calm", ["moves", "move", "visualDuration"], vd);
     expect(overrides(fresh)).toEqual({});
 
-    const s = createLabState({ version: 1, use: { station: "calm" }, feels: { calm: { moves: { move: { visualDuration: 0.3 } } } } });
+    const s = createLabState({ version: 1, use: { sidebar: "calm" }, feels: { calm: { moves: { move: { visualDuration: 0.3 } } } } });
     edit(s, "calm", ["moves", "move", "visualDuration"], vd);
-    expect(overrides(s)).toEqual({ version: 1, use: { station: "calm" } });
+    expect(overrides(s)).toEqual({ version: 1, use: { sidebar: "calm" } });
   });
 
   it("keeps a project feel's own keys even when they match nothing it could inherit", () => {
@@ -127,11 +127,11 @@ describe("Lab state", () => {
   it("hands out copies, so changing a returned object does not change the state", () => {
     const start = demo();
     const s = createLabState(start);
-    start.feels!["demo-guest"]!.stagger = 0.1;
-    overrides(s).feels!["demo-guest"]!.stagger = 0.1;
-    config(s).feels["demo-guest"]!.stagger = 0.1;
+    start.feels!["demo-playful"]!.stagger = 0.1;
+    overrides(s).feels!["demo-playful"]!.stagger = 0.1;
+    config(s).feels["demo-playful"]!.stagger = 0.1;
     expect(overrides(s)).toEqual(demo());
-    expect(config(s).feels["demo-guest"]!.stagger).toBe(0.07);
+    expect(config(s).feels["demo-playful"]!.stagger).toBe(0.07);
   });
 
   it("rejects an invalid file at load and an invalid adopt", () => {
