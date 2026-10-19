@@ -2,8 +2,8 @@
 # Usage: scripts/release.sh <version>   (for example 0.1.0)
 #
 # pnpm will not run `prepare` for a git-hosted package unless the consumer allows it,
-# so the tag carries the built dist/. That commit is not on main: main stays source only.
-# This script makes the commit and the tag. It pushes nothing.
+# so each release tag carries the built dist/. This script makes the tagged commit and the tag.
+# It pushes nothing.
 set -euo pipefail
 
 version="${1:-}"

@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { barFileErrors, validateBar } from "../core/bar.ts";
@@ -7,6 +9,7 @@ import { knob, knobDistance } from "../core/knob.ts";
 import { MotionConfigError, resolve } from "../core/merge.ts";
 import type { KindName } from "../core/types.ts";
 import { printVerdict, type Verdict } from "../gate/verdict.ts";
+import { initCommand, type InitDeps } from "./init.ts";
 
 export interface CliIo {
   cwd: string;
@@ -18,7 +21,8 @@ export interface CliIo {
 }
 
 const USAGE = [
-  "Usage: motion-kit <resolve|validate> [--in motion.json] [--out file]",
+  "Usage: motion-kit init                 (set this project up: install, Playwright, CLAUDE.md line)",
+  "       motion-kit <resolve|validate> [--in motion.json] [--out file]",
   "       motion-kit knobs <kind>... [--in motion.json]",
   "       motion-kit validate-bar <dir>",
   "       motion-kit gate <page.html>     (the kind gate: needs Playwright)",
@@ -75,6 +79,20 @@ export interface GateDeps {
   playwrightOrNull?: () => Promise<unknown>;
   /** The gate itself. Tests replace it. */
   kindGate?: (file: string) => Promise<Verdict & { distances: string[]; notes?: string[] }>;
+  /** What `init` runs commands with, and the version it installs. Tests replace it. */
+  init?: InitDeps;
+}
+
+/** `init`'s real commands: output shown as it runs, a shell on Windows so `npm.cmd` resolves. */
+function realInitDeps(): InitDeps {
+  const pkg = JSON.parse(readFileSync(path.join(kitRoot(), "package.json"), "utf8")) as { version: string };
+  return {
+    kitVersion: pkg.version,
+    exec: (cmd, args, cwd) => {
+      process.stdout.write(`> ${[cmd, ...args].join(" ")}\n`);
+      return spawnSync(cmd, args, { cwd, stdio: "inherit", shell: process.platform === "win32" }).status === 0;
+    },
+  };
 }
 
 type Launcher = { chromium: { launch(o: { headless: boolean }): Promise<{ close(): Promise<unknown> }> } };
@@ -119,9 +137,16 @@ async function gateCommand(file: string, io: CliIo, deps: GateDeps): Promise<num
   }
 }
 
-/** Exit codes: 0 ok, 1 invalid config, bar folder or gated page, 2 usage or file error. Only `gate` returns a promise. */
+/** Exit codes: 0 ok, 1 invalid config, bar folder or gated page, 2 usage or file error. Only `gate` and `init` return a promise. */
 export function run(args: string[], io: CliIo, deps: GateDeps = {}): number | Promise<number> {
   const [cmd, ...rest] = args;
+  if (cmd === "init") {
+    if (rest.length > 0) {
+      io.err(`${USAGE}init takes no arguments.\n`);
+      return 2;
+    }
+    return initCommand(io, deps.init ?? realInitDeps());
+  }
   if (cmd === "gate") {
     let positionals: string[];
     try {

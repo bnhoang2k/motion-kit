@@ -300,7 +300,7 @@ describe("motion-kit validate-bar", () => {
     expect(a.err.join("")).toBe(`Cannot read ${FIX}/nope.\n`);
     const b = io(stub);
     expect(run(["validate-bar"], b.api)).toBe(2);
-    expect(b.err.join("")).toMatch(/^Usage: .*\n.*\n.*validate-bar <dir>/);
+    expect(b.err.join("")).toMatch(/^Usage: [\s\S]*validate-bar <dir>/);
     const c = io(stub);
     expect(run(["validate-bar", "a", "b"], c.api)).toBe(2);
     const d = io(stub);

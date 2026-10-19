@@ -52,13 +52,13 @@ describe("motion-kit CLI", () => {
   it("prints usage for an unknown command", () => {
     const t = io();
     expect(run(["frobnicate"], t.api)).toBe(2);
-    expect(t.err.join("")).toMatch(/^Usage: motion-kit <resolve\|validate>/);
+    expect(t.err.join("")).toMatch(/^Usage: motion-kit init/);
   });
 
   it("exits 2 with usage for an unknown option", () => {
     const t = io();
     expect(run(["validate", "--bogus"], t.api)).toBe(2);
-    expect(t.err.join("")).toMatch(/^Usage: motion-kit <resolve\|validate>/);
+    expect(t.err.join("")).toMatch(/^Usage: motion-kit init/);
     expect(t.err.join("")).toMatch(/--bogus/);
   });
 
