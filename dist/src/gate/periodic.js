@@ -1,0 +1,153 @@
+import { FRAME_MS } from "./harness.js";
+import { rangeOf, REST_FRAMES, series, stillEps } from "./series.js";
+/**
+ * Designed loops: a value whose whole series repeats at one period, after a short lead-in. A loader's bounce, a
+ * relay of hops, a breath, a badge that pops in and out. A ticking hand counts too: each period it moves on by the
+ * same step. The envelope and overshoot rules give such a loop room a one-time motion does not get (each kind's
+ * rules.md).
+ */
+/** A loop's period is 500 ms to 7500 ms... */
+export const LOOP_PERIOD_MS = [500, 7500];
+/** ...after a lead-in of at most 2 s. */
+export const LOOP_LEAD_MS = 2000;
+/** The frames a loop is found in: the longest lead-in, then two of the longest periods. */
+export const PERIODIC_SCAN_MS = LOOP_LEAD_MS + 2 * LOOP_PERIOD_MS[1];
+/**
+ * The period of a value's frame steps after `fromMs`, or null. The steps cross a level going up once or more each
+ * period (after dipping a tenth of their range below it); each crossing time is read between frames, by a straight
+ * line. The period is the shortest gap from the first crossing, within LOOP_PERIOD_MS, that maps every crossing onto
+ * another within one frame, measured over as many periods as the frames hold, so a period off the frame grid comes
+ * out to a fraction of a millisecond. The level is the steps' mid level, or else their lower or upper quarter: a
+ * step that peaks right at one level crosses it in some cycles and not in others.
+ */
+export function periodOf(frames, name, fromMs) {
+    const v = series(frames, name);
+    const i0 = frames.findIndex((f) => f.ms >= fromMs - 1e-6);
+    if (i0 < 0)
+        return null;
+    const d = v.slice(i0 + 1).map((x, k) => x - v[i0 + k]);
+    if (!d.every(Number.isFinite))
+        return null;
+    const [lo, hi] = [Math.min(...d), Math.max(...d)];
+    if (!(hi - lo > stillEps(rangeOf(v))))
+        return null;
+    // A crossing counts once the steps have been below the level by a tenth of their range since the last one, so
+    // noise around the level (a value that holds still with sub-floor jitter) adds none. It ends above the level by
+    // more than the still tolerance: a hold, whose steps are zero, sits on the mid level of a move that goes and comes
+    // back at one speed, and its rounding must not decide where it crosses. An exact hold below the level arms it too,
+    // as a badge that rests between springs: a hold has no jitter to count twice.
+    const band = 0.1 * (hi - lo);
+    const eps = stillEps(hi - lo);
+    for (const q of [0.5, 0.25, 0.75]) {
+        const level = lo + q * (hi - lo);
+        const above = level + eps;
+        const ups = [];
+        let armed = false;
+        for (let k = 0; k + 1 < d.length; k++) {
+            if (d[k] < level - band || (Math.abs(d[k]) <= eps && d[k] < level - eps))
+                armed = true;
+            if (armed && d[k] <= above && d[k + 1] > above) {
+                ups.push(k + Math.max(0, (level - d[k]) / (d[k + 1] - d[k])));
+                armed = false;
+            }
+        }
+        const p = periodOfCrossings(ups);
+        if (p !== null)
+            return p;
+    }
+    return null;
+}
+/** The shortest gap from the first crossing that maps every crossing onto another (periodOf), in ms, or null. */
+function periodOfCrossings(ups) {
+    const near = (x) => ups.some((c) => Math.abs(c - x) <= 1);
+    for (const c of ups.slice(1)) {
+        const p = c - ups[0];
+        if (p * FRAME_MS < LOOP_PERIOD_MS[0] - FRAME_MS || p * FRAME_MS > LOOP_PERIOD_MS[1] + FRAME_MS)
+            continue;
+        if (!ups.every((x) => x + p > ups[ups.length - 1] + 1 || near(x + p)))
+            continue;
+        const m = Math.floor((ups[ups.length - 1] - ups[0] + 1) / p);
+        const far = ups.reduce((best, x) => (Math.abs(x - ups[0] - m * p) < Math.abs(best - ups[0] - m * p) ? x : best), ups[0]);
+        return ((far - ups[0]) / m) * FRAME_MS;
+    }
+    return null;
+}
+/**
+ * Whether the value `name` on `page` is a loop, read from `frames` (seek frames from 0 over PERIODIC_SCAN_MS) and from
+ * exact seeks one period later. A loop: from some time in its first LOOP_LEAD_MS on, every frame's value one period
+ * later is the same plus one fixed step, within `tolerance`, for at least one whole period. The period is periodOf's,
+ * or the first of its multiples, up to LOOP_PERIOD_MS, that repeats: two equal hops with different settles cross
+ * their mid level at half the true period.
+ */
+export async function periodicOf(page, frames, name, tolerance) {
+    const p = periodOf(frames, name, LOOP_LEAD_MS);
+    if (p === null)
+        return null;
+    for (let k = 1; k * p <= LOOP_PERIOD_MS[1] + FRAME_MS; k++) {
+        const loop = await repeatsAt(page, frames, name, tolerance, refinedPeriod(frames, name, k * p));
+        if (loop)
+            return loop;
+    }
+    return null;
+}
+/**
+ * The period within one frame of `p` at which the frames after LOOP_LEAD_MS best repeat (least squares, each frame
+ * against the frames one period later, read between frames by a straight line, less the median step). Noise on a
+ * value jitters its crossing times, and so periodOf's estimate; this needs no seeks.
+ */
+export function refinedPeriod(frames, name, p) {
+    const v = series(frames, name);
+    const t0 = frames[0].ms;
+    const at = (ms) => {
+        const x = (ms - t0) / FRAME_MS;
+        const i = Math.floor(x);
+        return i + 1 < v.length ? v[i] + (v[i + 1] - v[i]) * (x - i) : Number.NaN;
+    };
+    const cost = (q) => {
+        const d = frames.filter((f) => f.ms >= LOOP_LEAD_MS - 1e-6).map((f, i) => at(f.ms + q) - (f.values[name] ?? Number.NaN)).filter(Number.isFinite);
+        if (d.length === 0)
+            return Number.POSITIVE_INFINITY;
+        const step = [...d].sort((a, b) => a - b)[Math.floor(d.length / 2)];
+        return d.reduce((sum, x) => sum + (x - step) ** 2, 0) / d.length;
+    };
+    let best = p;
+    let bestCost = cost(p);
+    for (const dq of [0.5, 0.02]) {
+        const c = best;
+        for (let q = c - (dq === 0.5 ? FRAME_MS : 0.5); q <= c + (dq === 0.5 ? FRAME_MS : 0.5) + 1e-9; q += dq) {
+            const k = cost(q);
+            if (k < bestCost)
+                [best, bestCost] = [q, k];
+        }
+    }
+    return best;
+}
+/**
+ * The loop of `name` at period `p`, or null. A frame holds still when it stays within half of `tolerance` over the next
+ * REST_FRAMES frame steps: noise below the unit floor cannot be seen, and the slow turn of a bounce still moves more.
+ */
+async function repeatsAt(page, frames, name, tolerance, p) {
+    const end = frames[frames.length - 1].ms;
+    const base = frames.filter((f) => f.ms + p <= end + 1e-6);
+    const later = await page.framesAt(base.map((f) => f.ms + p));
+    const diff = base.map((f, i) => (later[i].values[name] ?? Number.NaN) - (f.values[name] ?? Number.NaN));
+    const settled = diff.filter((_, i) => base[i].ms >= LOOP_LEAD_MS - 1e-6).sort((a, b) => a - b);
+    if (settled.length === 0)
+        return null;
+    const step = settled[Math.floor(settled.length / 2)];
+    let last = -1;
+    diff.forEach((x, i) => {
+        if (!(Math.abs(x - step) <= tolerance))
+            last = i;
+    });
+    const leadMs = last < 0 ? 0 : base[last].ms + FRAME_MS;
+    if (leadMs > LOOP_LEAD_MS + 1e-6 || end - p - leadMs < p - 1e-6)
+        return null;
+    const v = series(frames, name);
+    const cycle = frames.map((f, i) => i).filter((i) => frames[i].ms >= leadMs - 1e-6 && frames[i].ms <= leadMs + p + 1e-6);
+    const stillEachCycle = cycle.some((i) => {
+        const w = v.slice(i, i + REST_FRAMES + 1);
+        return w.length === REST_FRAMES + 1 && Math.max(...w) - Math.min(...w) <= tolerance / 2;
+    });
+    return { periodMs: p, leadMs, step, stillEachCycle };
+}
