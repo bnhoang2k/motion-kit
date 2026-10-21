@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="c40b-wide-bar-off-top-twos">
+<title>c40b-wide-bar-off-top-twos</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="sq" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const f = MK.REDUCED ? 0 : MK.frameOf(t); const k = Math.floor(f / 2) * 2; const y = Math.round(200 - 215 * (0.5 - 0.5 * Math.cos(2 * Math.PI * k / 60 / MOTION.period)));
+  MK.place($("a"), 540, y, 200, 20);
+  return { values: { y }, units: { y: "px" }, objects: { bar: { box: MK.boxOf($("a")), moves: ["y"] } } };
+} });
+</script>
+</body></html>

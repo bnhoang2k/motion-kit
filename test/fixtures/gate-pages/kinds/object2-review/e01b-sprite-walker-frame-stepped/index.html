@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="e01b-sprite-walker-frame-stepped">
+<title>e01b-sprite-walker-frame-stepped</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<canvas id="cv" width="1280" height="720" style="position:absolute;left:0;top:0"></canvas>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":6};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const f = MK.REDUCED ? 0 : MK.frameOf(t); const n = Math.round(MOTION.period * 60); const k = Math.floor((f % n) / 2);
+  const frame = k % 8; const x = Math.round(-80 + 1440 * (k / (n / 2))); const y = 300;
+  const g = $("cv").getContext("2d"); g.clearRect(0, 0, 1280, 720); g.fillStyle = "#f0c040";
+  const legs = [[-14, 14], [-8, 8], [0, 0], [8, -8], [14, -14], [8, -8], [0, 0], [-8, 8]][frame];
+  g.fillRect(x + 12, y, 16, 40); g.fillRect(x + 14 + legs[0], y + 40, 6, 30); g.fillRect(x + 20 + legs[1], y + 40, 6, 30);
+  g.beginPath(); g.arc(x + 20, y - 10, 10, 0, 2 * Math.PI); g.fill();
+  const minX = Math.min(x + 10, x + 14 + Math.min(legs[0], legs[1] + 6)), maxX = Math.max(x + 30, x + 26 + Math.max(legs[0] - 6, legs[1]));
+  let b = [minX, y - 20, maxX - minX, 90]; 
+  return { values: { x, frame }, units: { x: "px", frame: "index" }, objects: { walker: { box: b, moves: ["x", "frame"] } } };
+} });
+</script>
+</body></html>

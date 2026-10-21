@@ -11,7 +11,7 @@ function project(files: Record<string, string>, failOn?: string) {
     out: (s) => out.push(s),
     err: (s) => err.push(s),
     read: (p) => files[p],
-    write: (p, d) => (files[p] = d),
+    write: (p, d) => (files[p] = String(d)),
   };
   const deps: InitDeps = {
     kitVersion: "0.3.0",

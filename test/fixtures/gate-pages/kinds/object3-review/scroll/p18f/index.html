@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>p18f</title>
+<style>html,body{margin:0;background:#101418}
+.fx{position:fixed;z-index:5}
+.ab{position:absolute;z-index:5}
+</style>
+</head><body>
+<div style="height:3000px"></div>
+<div class="fx" id="c" style="background:#60c0f0"></div>
+<script src="../mk.js"></script>
+<script src="../rig.js"></script>
+<script>
+const H = RIG.H, W = RIG.W;
+const el = (id) => document.getElementById(id);
+const FAULT = true;
+const c = el("c"), x0 = Math.round(W / 2 - 60);
+const slideOf = (s) => MOTION.gain * s.y;
+const MOTION = {"maxStep":0.05,"redStep":500,"smooth":0,"gain":0.06};
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, prevTarget: 0 }),
+  step(s, dt, inp, t) { RIG.scrollStep(s, dt, inp, MOTION); },
+  render(s) { MK.place(c, x0 + slideOf(s), Math.round(H / 2), 120, 60); },
+  report(s) { const box = FAULT ? [x0, Math.round(H / 2), 120, 60] : MK.boxOf(c);
+    return { values: { slide: slideOf(s) }, objects: { card: { box, moves: ["slide"] } } }; },
+});
+</script>
+</body></html>

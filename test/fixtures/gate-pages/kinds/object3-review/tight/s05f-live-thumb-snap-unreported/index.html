@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>s05f-live-thumb-snap-unreported</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+#track{position:absolute;left:280px;top:356px;width:900px;height:8px;background:#30363d}
+</style>
+</head><body>
+<div id="track"></div><div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"friction":0.9};
+const $ = (id) => document.getElementById(id);
+MK.run({ kind: "live", cap: MOTION.maxStep * 1000,
+  init: () => ({ drag: 0, snap: 0, v: 0, gx: 0, d0: 0, was: false }),
+  step(s, dt, inp, t) {
+    const down = inp.down && !Number.isNaN(inp.x);
+    if (down && !s.was) { s.snap = inp.x - 20 - 300 - s.drag; s.gx = inp.x; s.d0 = s.drag; s.v = 0; }
+    if (down) { const nd = s.d0 + (inp.x - s.gx); s.v = nd - s.drag; s.drag = nd; }
+    else if (s.v !== 0) { if (MK.REDUCED) s.v = 0; s.v *= MOTION.friction; s.drag += s.v; if (Math.abs(s.v) < 0.01) s.v = 0; }
+    s.was = down;
+  },
+  render(s) { MK.place($("a"), 300 + s.snap + s.drag, 340, 40, 40); },
+  report(s) { return { values: { drag: s.drag }, units: { drag: "px", snap: "px" }, objects: { thumb: { box: MK.boxOf($("a")), moves: ["drag"] } } }; },
+});
+</script>
+</body></html>

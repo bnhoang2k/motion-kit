@@ -1,0 +1,34 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>p07h</title>
+<style>html,body{margin:0;background:#101418}
+.fx{position:fixed;z-index:5}
+.ab{position:absolute;z-index:5}
+</style>
+</head><body>
+<div style="height:3000px"></div>
+<div class="fx" id="nav" style="background:#2a3442"></div><div class="fx" id="toast" style="background:#e8e8e8;border-radius:6px;opacity:0"></div>
+<script src="../mk.js"></script>
+<script src="../rig.js"></script>
+<script>
+const H = RIG.H, W = RIG.W;
+const el = (id) => document.getElementById(id);
+const FAULT = false;
+const nav = el("nav"), toast = el("toast");
+MK.place(nav, 0, H - 80, W, 80);
+MK.place(toast, Math.round(W / 2 - 100), H - 165, 200, 50);
+const MOTION = {"maxStep":0.05,"redStep":500,"smooth":0,"toastFade":1000};
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, prevTarget: 0, toastA: 0 }),
+  step(s, dt, inp, t) { RIG.scrollStep(s, dt, inp, MOTION);
+    if (MK.REDUCED) s.toastA = s.target > 0 ? 1 : 0;
+    else if (s.target > s.prevTarget) s.toastA = 1;
+    else s.toastA = Math.max(0, s.toastA - (dt * 1000) / MOTION.toastFade); },
+  render(s) { toast.style.opacity = String(s.toastA); },
+  report(s) { const objects = { nav: { box: MK.boxOf(nav), moves: ["navO"] } };
+    if (!FAULT) objects.toast = { box: MK.boxOf(toast), moves: ["toastA"] };
+    return { values: { navO: 1, toastA: s.toastA, depth: s.y / 300 }, units: { navO: "opacity", toastA: "opacity", depth: "ratio" }, objects }; },
+});
+</script>
+</body></html>

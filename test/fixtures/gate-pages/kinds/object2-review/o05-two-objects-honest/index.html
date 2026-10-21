@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>o05-two-objects-honest</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div><div class="sq" id="b" style="width:30px;height:30px"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const tt = MK.REDUCED ? 0 : t; const x = 400 + 200 * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period); const y2 = 500 + 50 * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period / 2);
+  let J = 0;
+  
+  MK.place($("a"), x, 300, 40, 40); MK.place($("b"), 800 + J, y2, 30, 30);
+  return { values: { x, y2 }, units: { x: "px", y2: "px" }, objects: { a: { box: MK.boxOf($("a")), moves: ["x"] }, b: { box: MK.boxOf($("b")), moves: ["y2"] } } };
+} });
+</script>
+</body></html>

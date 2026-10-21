@@ -93,6 +93,16 @@ describe("the static audit", () => {
     ]);
   });
 
+  // A page can wait on the wall clock without a timer or a now(): an idle callback, or the document timeline's time.
+  it("fails requestIdleCallback, document.timeline.currentTime and new Date()", () => {
+    const html = page(KIND, "const wait = () => (document.timeline.currentTime > 3500 ? go() : requestIdleCallback(wait));\nconst stamp = new Date().getTime();\nconst fixed = new Date(0);");
+    expect(audit(html).failures).toEqual([
+      `audit: line 2: ${CLOCK("document.timeline.currentTime")}`,
+      `audit: line 2: ${CLOCK("requestIdleCallback")}`,
+      `audit: line 3: ${CLOCK("new Date()")}`,
+    ]);
+  });
+
   it("passes a wall-clock use whose line carries a clock marker", () => {
     const html = page(
       KIND,

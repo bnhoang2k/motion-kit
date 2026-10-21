@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>idle: drawn-blink</title>
+<style>html { background: #fff } body { margin: 0 } #head { position: fixed; left: 540px; top: 220px; width: 200px; height: 200px; border-radius: 50%; background: #e0b080 } #eye { position: fixed; left: 620px; top: 260px; width: 40px; height: 40px; border-radius: 50%; background: #333 } #lid { position: fixed; left: 620px; top: 260px; width: 40px; height: 0; background: #e0b080 }</style>
+</head>
+<body>
+<div id="head"></div>
+<div id="eye"></div>
+<div id="lid"></div>
+<script>
+// The drawn check: a lid closes over an eye inside a still head, each its own object.
+window.VARIANT = "blink";
+</script>
+<script src="drawn-face.js"></script>
+</body>
+</html>

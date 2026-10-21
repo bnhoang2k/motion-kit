@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>p20f</title>
+<style>html,body{margin:0;background:#101418}
+.fx{position:fixed;z-index:5}
+.ab{position:absolute;z-index:5}
+</style>
+</head><body>
+<div style="height:3000px"></div>
+<div class="fx" id="tab" style="background:#f06080"></div>
+<script src="../mk.js"></script>
+<script src="../rig.js"></script>
+<script>
+const H = RIG.H, W = RIG.W;
+const el = (id) => document.getElementById(id);
+const FAULT = true;
+const tab = el("tab");
+const xOf = (s) => 200 + MOTION.gain * s.y;
+const MOTION = {"maxStep":0.05,"redStep":500,"smooth":0,"gain":0.6};
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, prevTarget: 0 }),
+  step(s, dt, inp, t) { RIG.scrollStep(s, dt, inp, MOTION); },
+  render(s) { MK.place(tab, FAULT ? 200 : xOf(s), 10, 50, 60); },
+  report(s) { const x = xOf(s); return { values: { tabX: x }, units: { tabX: "px" }, objects: { tab: { box: FAULT ? [x, 10, 50, 60] : MK.boxOf(tab), moves: ["tabX"] } } }; },
+});
+</script>
+</body></html>

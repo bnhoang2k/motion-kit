@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t06f-canvas-sprite-enters</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+
+</style>
+</head><body>
+<canvas id="c" width="1280" height="720" style="position:absolute;left:0;top:0;width:1280px;height:720px"></canvas>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;function rr(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); g.fill(); }
+const sx = -100 + 450 * (0.5 - 0.5 * Math.cos(ph)); const sy = 330;
+const g = $("c").getContext("2d"); g.clearRect(0, 0, 1280, 720); g.fillStyle = "#f0c040"; rr(g, sx, sy, 60, 60, 12);
+return { values: { sx }, units: { sx: "px" }, objects: { sprite: { box: [sx, sy - 18, 60, 96], moves: ["sx"] } } };
+} });
+</script>
+</body></html>

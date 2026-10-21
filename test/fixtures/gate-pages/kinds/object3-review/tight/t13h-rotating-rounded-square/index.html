@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t13h-rotating-rounded-square</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+#a{border-radius:20px}
+</style>
+</head><body>
+<div class="sq" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;
+const x = 600 + 250 * Math.sin(ph); const a = MK.REDUCED ? 0 : 360 * t / 1000 / MOTION.period;
+MK.place($("a"), x, 320, 80, 80); $("a").style.transform = "rotate(" + a + "deg)"; const b = MK.boxOf($("a"));
+return { values: { x, a }, units: { x: "px", a: "deg" }, objects: { tile: { box: b, moves: ["x", "a"] } } };
+} });
+</script>
+</body></html>

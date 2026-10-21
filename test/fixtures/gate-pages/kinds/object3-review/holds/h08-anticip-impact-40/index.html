@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="h08-anticip-impact-40">
+<title>h08-anticip-impact-40</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:2px}
+</style>
+</head><body>
+<div class="o" id="x"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"loop":true,"phase":0,"pieces":[{"size":40,"y":300,"delay":0,"seq":[[300,30],[298,2],[296,2],[294,2],[292,9],[298,2],[310,2],[322,2],[328,8],[330,2],[332,30],[331.455,2],[329.856,2],[327.314,2],[324,2],[320.141,2],[316,2],[311.859,2],[308,2],[304.686,2],[302.144,2],[300.545,2]]}]};
+const NAMES = ["x"];
+const els = NAMES.map((n) => document.getElementById(n));
+const lens = MOTION.pieces.map((q) => q.seq.reduce((a, d) => a + d[1], 0));
+function at(q, total, k) {
+  if (MOTION.loop) k = ((k % total) + total) % total;
+  else if (k >= total) return q.seq[q.seq.length - 1][0];
+  else if (k < 0) return q.seq[0][0];
+  for (const d of q.seq) { if (k < d[1]) return d[0]; k -= d[1]; }
+  return q.seq[q.seq.length - 1][0];
+}
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,
+  busy(s) { return s.tap !== null && MK.frameOf(s.t - s.tap) < Math.max(...MOTION.pieces.map((q, i) => q.delay + lens[i])) + 2; },
+  draw(t, inp, s) {
+  const values = {}, units = {}, objects = {};
+  MOTION.pieces.forEach((q, i) => {
+    let k;
+    if ("idle" === "choreo") {
+      if (MK.REDUCED) k = lens[i];
+      else if (s.tap === null) k = -1;
+      else k = MK.frameOf(t - s.tap) - q.delay;
+    } else if (MK.REDUCED) k = MOTION.loop ? 0 : lens[i];
+    else k = MK.frameOf(t) + MOTION.phase;
+    const x = at(q, lens[i], k);
+    MK.place(els[i], x, q.y, q.size, q.size);
+    values[NAMES[i]] = x; units[NAMES[i]] = "px";
+    objects["dot" + i] = { box: MK.boxOf(els[i]), moves: [NAMES[i]] };
+  });
+  return { values, units, objects };
+} });
+</script>
+</body></html>

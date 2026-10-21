@@ -9,7 +9,10 @@ import { knob, knobDistance } from "../core/knob.ts";
 import { MotionConfigError, resolve } from "../core/merge.ts";
 import type { KindName } from "../core/types.ts";
 import { printVerdict, type Verdict } from "../gate/verdict.ts";
+import type { FrameSheet, SheetOptions } from "../gate/sheet.ts";
 import { initCommand, type InitDeps } from "./init.ts";
+import { chromiumReady, closeHarness, firstLine, playwrightInstall } from "./playwright.ts";
+import { parseSamples, parseTo, sheetCommand } from "./sheet.ts";
 
 export interface CliIo {
   cwd: string;
@@ -17,7 +20,7 @@ export interface CliIo {
   err(s: string): void;
   /** Returns undefined when the file does not exist. */
   read(path: string): string | undefined;
-  write(path: string, data: string): void;
+  write(path: string, data: string | Uint8Array): void;
 }
 
 const USAGE = [
@@ -26,6 +29,8 @@ const USAGE = [
   "       motion-kit knobs <kind>... [--in motion.json]",
   "       motion-kit validate-bar <dir>",
   "       motion-kit gate <page.html>     (the kind gate: needs Playwright)",
+  "       motion-kit sheet <page.html> [--out sheet.png] [--samples 8] [--to ms] [--full]",
+  "                                       (one PNG of the page at evenly spaced times: needs Playwright)",
   "",
 ].join("\n");
 
@@ -72,11 +77,13 @@ function knobsSource(cfg: ReturnType<typeof resolve>, kinds: KindName[]): string
   return `/* motion-kit:knobs */\nconst KNOBS = ${JSON.stringify(out, null, 2)};\n`;
 }
 
-export const PLAYWRIGHT_INSTALL = "motion-kit gate needs Playwright: pnpm add -D playwright && pnpm exec playwright install chromium";
+export const PLAYWRIGHT_INSTALL = playwrightInstall("gate");
 
 export interface GateDeps {
   /** Resolves to Playwright, or null when it cannot be imported. Tests replace it. */
   playwrightOrNull?: () => Promise<unknown>;
+  /** The frame sheet. Tests replace it. */
+  frameSheet?: (file: string, options: SheetOptions) => Promise<FrameSheet>;
   /** The gate itself. Tests replace it. */
   kindGate?: (file: string) => Promise<Verdict & { distances: string[]; notes?: string[] }>;
   /** What `init` runs commands with, and the version it installs. Tests replace it. */
@@ -95,10 +102,6 @@ function realInitDeps(): InitDeps {
   };
 }
 
-type Launcher = { chromium: { launch(o: { headless: boolean }): Promise<{ close(): Promise<unknown> }> } };
-
-const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0];
-
 /**
  * `gate <page.html>`: Gate B on one page. Exit 0 `passed`, 1 `failed: n` or `partial`, 2 when the
  * page cannot be read, Playwright or its Chromium is missing, or the gate cannot start. The note
@@ -112,15 +115,7 @@ async function gateCommand(file: string, io: CliIo, deps: GateDeps): Promise<num
     io.err(`Cannot read ${file}.\n`);
     return 2;
   }
-  const harness = deps.playwrightOrNull ? null : await import("../gate/harness.ts");
-  const pw = (await (deps.playwrightOrNull ?? harness!.playwrightOrNull)()) as Launcher | null;
-  if (pw === null) {
-    io.err(`${PLAYWRIGHT_INSTALL}\n`);
-    return 2;
-  }
-  try {
-    await (await pw.chromium.launch({ headless: true })).close();
-  } catch {
+  if (!(await chromiumReady(deps.playwrightOrNull))) {
     io.err(`${PLAYWRIGHT_INSTALL}\n`);
     return 2;
   }
@@ -133,11 +128,11 @@ async function gateCommand(file: string, io: CliIo, deps: GateDeps): Promise<num
     io.err(`motion-kit gate could not run: ${firstLine(e)}\n`);
     return 2;
   } finally {
-    if (!deps.kindGate) await (harness ?? (await import("../gate/harness.ts"))).closeBrowser();
+    if (!deps.kindGate) await closeHarness();
   }
 }
 
-/** Exit codes: 0 ok, 1 invalid config, bar folder or gated page, 2 usage or file error. Only `gate` and `init` return a promise. */
+/** Exit codes: 0 ok, 1 invalid config, bar folder or gated page, 2 usage or file error. Only `gate`, `sheet` and `init` return a promise. */
 export function run(args: string[], io: CliIo, deps: GateDeps = {}): number | Promise<number> {
   const [cmd, ...rest] = args;
   if (cmd === "init") {
@@ -157,6 +152,24 @@ export function run(args: string[], io: CliIo, deps: GateDeps = {}): number | Pr
       return 2;
     }
     return gateCommand(positionals[0] as string, io, deps);
+  }
+  if (cmd === "sheet") {
+    let parsed: { out: string; options: SheetOptions; page: string };
+    try {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: { out: { type: "string" }, samples: { type: "string" }, to: { type: "string" }, full: { type: "boolean" } },
+      });
+      if (positionals.length !== 1) throw new Error("sheet takes one page.");
+      const to = parseTo(values.to);
+      const options: SheetOptions = { samples: parseSamples(values.samples), full: values.full ?? false, ...(to === undefined ? {} : { toMs: to }) };
+      parsed = { out: values.out ?? "sheet.png", options, page: positionals[0] as string };
+    } catch (e) {
+      io.err(`${USAGE}${(e as Error).message}\n`);
+      return 2;
+    }
+    return sheetCommand(parsed.page, parsed.out, parsed.options, io, deps);
   }
   if (cmd !== "resolve" && cmd !== "validate" && cmd !== "knobs" && cmd !== "validate-bar") {
     io.err(USAGE);

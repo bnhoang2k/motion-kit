@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="af05-forged-holds-jump">
+<title>af05-forged-holds-jump</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":4,"rate":2};
+const el = document.getElementById("a");
+function pose(f) { const n = Math.round(MOTION.period * 60); const k = f % n;
+  // creep 2 px a drawing on twos, a 7-frame hold, a 36 px jump, a 7-frame hold, creep on; then the way back
+  let x; if (k < 60) x = 300 + 2 * Math.floor(k / 2); else if (k < 67) x = 360; else if (k < 74) x = 396; else if (k < 134) x = 396 + 2 * Math.floor((k - 74) / 2); else x = 456 - 156 * (k - 134) / (n - 134);
+  return { x: Math.round(x), y: 340 }; }
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const p = pose(f);
+  MK.place(el, p.x, p.y, p.w ?? 40, p.h ?? 40);
+  
+  return { values: { x: p.x }, units: {"x":"px"},
+    objects: { dot: { box: MK.boxOf(el), moves: ["x"] } } };
+} });
+</script>
+</body></html>

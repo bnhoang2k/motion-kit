@@ -129,7 +129,8 @@ export async function barGate(dir: string): Promise<Verdict> {
   const reads = trace.channels.map((c) => c.read);
   const selectors = [...new Set(trace.channels.flatMap((c) => c.selectors))];
   // reducedMotion reads the trace's whole span, not the kind gate's 3 s: a bar's input may start late.
-  const ctx: RuleContext = { kind: bar.kinds[0] as KindName, input, cuts, spanMs };
+  const stepped = trace.stepped ?? [];
+  const ctx: RuleContext = { kind: bar.kinds[0] as KindName, input, cuts, spanMs, stepped };
 
   let opened: Promise<GatePage> | undefined;
   const page = () => (opened ??= openPage(file, input ? { input: input.samples } : {}));
@@ -145,7 +146,9 @@ export async function barGate(dir: string): Promise<Verdict> {
     missingChannel: async () => missingChannel({ channels: reads.map((name) => ({ name })) }, await spanFrames()),
     trace: async () => compareSamples(await page(), trace),
     events: async () => compareEvents(await page(), trace, spanMs),
-    suddenJumps: async () => suddenJumps(await page(), reads, cuts, spanMs, input),
+    // The page reads raw: the trace and events compare the drawings the original held, and suddenJumps judges a
+    // stepped value at its drawing rate.
+    suddenJumps: async () => suddenJumps(await page(), reads, cuts, spanMs, input, stepped, ctx.kind === "scroll"),
     coverage: async () => {
       await spanFrames();
       return coverage(await page(), [...selectors, ...(bar.cover ?? [])]);

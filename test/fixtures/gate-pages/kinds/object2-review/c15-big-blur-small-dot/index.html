@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>c15-big-blur-small-dot</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+html,body{background:#e8e8e8}#a{z-index:1;background:#203040;box-shadow:0 0 40px 6px rgba(0,0,0,.7)}</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2,"amp":200};
+const el = document.getElementById("a");
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const tt = MK.REDUCED ? 0 : t;
+  const n = Math.round(MOTION.period * 60), f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const X = (tt) => { const f = MK.frameOf(tt); return 400 + MOTION.amp * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period); };
+  const x = X(tt);
+  MK.place(el, x, 300, 12, 12);
+  
+  let b = MK.boxOf(el);
+  
+  return { values: { x }, units: {"x":"px"},
+    objects: { dot: { box: b, moves: ["x"], halo: 46 } } };
+} });
+</script>
+</body></html>

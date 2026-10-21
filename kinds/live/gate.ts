@@ -1,5 +1,7 @@
 import { FRAME_MS, type Frame, type GatePage, type InputSamples } from "../../src/gate/harness.ts";
 import { rangeOf, reopen, round, series, spanOf, stillEps, valueNames, type KindRule, type RuleContext } from "../../src/gate/kind-gate.ts";
+import { fittedGains, leadWindow, steppedLeads, tracks } from "../../src/gate/leads.ts";
+import { poseLine } from "../../src/gate/poses.ts";
 import { JUMP_FACTOR } from "../../src/gate/self-checks.ts";
 import { inputSpan } from "../../src/gate/synthetic-input.ts";
 
@@ -52,14 +54,20 @@ const follows: KindRule = {
     for (let i = 0; i + 1 < frames.length; i++) if (frames[i]!.ms >= start - 1e-6 && frames[i + 1]!.ms <= end + 1e-6) steps.push(i);
     let best = { name: "", share: 0 };
     for (const n of valueNames(frames)) {
-      const v = series(frames, n);
-      const eps = stillEps(rangeOf(v));
+      const raw = series(frames, n);
+      const eps = stillEps(rangeOf(raw));
+      // A stepped value moves in drawings (a dot on a grid): it follows while its drawings keep changing, as its pose line shows.
+      const v = ctx.stepped?.includes(n) ? poseLine(raw, eps) : raw;
       const share = steps.length === 0 ? 0 : steps.filter((i) => Math.abs(v[i + 1]! - v[i]!) > eps).length / steps.length;
       if (share > best.share) best = { name: n, share };
     }
-    if (best.share >= FOLLOW_SHARE) return [];
-    if (best.share === 0) return [`follows: no value moves while the pointer drags from ${round(start)} to ${round(end)} ms`];
-    return [`follows: the value that follows best, ${best.name}, moves in only ${Math.round(best.share * 100)}% of the drag's frames; a live page follows the input in ${FOLLOW_SHARE * 100}% or more`];
+    const out: string[] = [];
+    if (best.share === 0) out.push(`follows: no value moves while the pointer drags from ${round(start)} to ${round(end)} ms`);
+    else if (best.share < FOLLOW_SHARE) out.push(`follows: the value that follows best, ${best.name}, moves in only ${Math.round(best.share * 100)}% of the drag's frames; a live page follows the input in ${FOLLOW_SHARE * 100}% or more`);
+    // From the drag's first sample until the values rest after it, a stepped value reads raw: its drawings may not run
+    // ahead of the hand or jump off it (leads.ts).
+    if (ctx.stepped?.length) out.push(...(await steppedLeads(page, ctx, pointer(ctx), "follows", fittedGains)));
+    return out;
   },
 };
 
@@ -97,47 +105,8 @@ const releaseSpeed: KindRule = {
   },
 };
 
-/** A value tracks a pointer axis when it moves with it this closely during the drag (|r|). */
-const TRACK_R = 0.9;
 /** A press grabs the page when, while the pointer holds still, a tracked value covers at most this share of its way to rest. */
 const HOLD_SHARE = 0.25;
-
-type Track = { axis: 1 | 2; name: string; slope: number };
-
-/**
- * For each pointer axis, the value that moves with it during the drag, and how many value units
- * it moves per px. Each value goes to the one axis it follows best, so one value never aims both.
- */
-function tracks(frames: Frame[], input: Pointer): Track[] {
-  const { start, end } = inputSpan(input);
-  const inDrag = frames.filter((f) => f.ms >= start - 1e-6 && f.ms <= end + 1e-6);
-  const pointerAt = (ms: number) => [...input.samples].reverse().find((q) => q[0] <= ms + 1e-6) ?? input.samples[0]!;
-  const best = new Map<1 | 2, Track & { r: number }>();
-  for (const n of valueNames(frames)) {
-    const v = inDrag.map((f) => f.values[n] ?? Number.NaN);
-    const fits = ([1, 2] as const).map((axis) => ({ axis, fit: linearFit(inDrag.map((f) => pointerAt(f.ms)[axis]), v) }));
-    const top = fits.reduce((a, b) => (Math.abs(b.fit?.r ?? 0) > Math.abs(a.fit?.r ?? 0) ? b : a));
-    if (!top.fit || Math.abs(top.fit.r) < TRACK_R || top.fit.slope === 0) continue;
-    const held = best.get(top.axis);
-    if (!held || Math.abs(top.fit.r) > Math.abs(held.r)) best.set(top.axis, { axis: top.axis, name: n, slope: top.fit.slope, r: top.fit.r });
-  }
-  return [...best.values()].map(({ axis, name, slope }) => ({ axis, name, slope }));
-}
-
-function linearFit(x: number[], y: number[]): { slope: number; r: number } | null {
-  const n = x.length;
-  if (n < 3 || y.some((v) => !Number.isFinite(v))) return null;
-  const mx = x.reduce((a, b) => a + b, 0) / n;
-  const my = y.reduce((a, b) => a + b, 0) / n;
-  let sxy = 0, sxx = 0, syy = 0;
-  for (let i = 0; i < n; i++) {
-    sxy += (x[i]! - mx) * (y[i]! - my);
-    sxx += (x[i]! - mx) ** 2;
-    syy += (y[i]! - my) ** 2;
-  }
-  if (sxx === 0 || syy === 0) return null;
-  return { slope: sxy / sxx, r: sxy / Math.sqrt(sxx * syy) };
-}
 
 type Sample = [number, number, number] | [number, number, number, 0 | 1];
 
@@ -235,3 +204,6 @@ async function regrabFrom(alone: GatePage, page: GatePage, input: Pointer, ctx: 
 }
 
 export const rules: KindRule[] = [follows, releaseSpeed, regrab];
+
+/** The stepped values `follows` judges inside the input window, on the first press, which the envelope rule leaves to it. */
+export const inputLeads = (page: GatePage, ctx: RuleContext) => leadWindow(page, ctx, pointer(ctx), fittedGains);

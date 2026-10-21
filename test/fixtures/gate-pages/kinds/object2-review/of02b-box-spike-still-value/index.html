@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>of02b-box-spike-still-value</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="sq" id="b" style="width:30px;height:30px"></div><div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const tt = MK.REDUCED ? 0 : t; const x = 400 + 200 * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period); const J = (!MK.REDUCED && MK.frameOf(t) % 120 >= 60) ? 200 : 0;
+  MK.place($("a"), x, 300, 40, 40); MK.place($("b"), 800 + J, 500, 30, 30);
+  return { values: { x, y2: 500 }, units: { x: "px", y2: "px" }, objects: { a: { box: MK.boxOf($("a")), moves: ["x"] }, b: { box: MK.boxOf($("b")), moves: ["y2"] } } };
+} });
+</script>
+</body></html>

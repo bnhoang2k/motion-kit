@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>p12f</title>
+<style>html,body{margin:0;background:#101418}
+.fx{position:fixed;z-index:5}
+.ab{position:absolute;z-index:5}
+</style>
+</head><body>
+<div id="fg" style="position:fixed;left:0;top:0;width:100%;height:100%;z-index:0"></div><div style="height:3000px"></div>
+<div class="fx" id="bar" style="background:#e0e0f0"></div>
+<script src="../mk.js"></script>
+<script src="../rig.js"></script>
+<script>
+const H = RIG.H, W = RIG.W;
+const el = (id) => document.getElementById(id);
+el("fg").style.background = "linear-gradient(rgb(16,20,40), rgb(16,20," + (40 + Math.round(0.12 * H)) + "))";
+const FAULT = true;
+const bar = el("bar"), y0 = Math.round(H / 2 - 120);
+const xOf = (s) => 80 + MOTION.gain * s.y;
+const MOTION = {"maxStep":0.05,"redStep":500,"smooth":0.12,"gain":0.4};
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, prevTarget: 0 }),
+  step(s, dt, inp, t) { RIG.scrollStep(s, dt, inp, MOTION); },
+  render(s) { MK.place(bar, xOf(s), y0, 60, 240); },
+  report(s) { const b = MK.boxOf(bar); const box = FAULT ? [b[0] - 18, b[1], 96, b[3]] : b;
+    return { values: { barX: xOf(s) }, units: { barX: "px" }, objects: { bar: { box, moves: ["barX"] } } }; },
+});
+</script>
+</body></html>

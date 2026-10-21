@@ -153,6 +153,12 @@ needs Playwright: `pnpm add -D playwright && pnpm exec playwright install chromi
 The command prints `passed`, `partial` or `failed: n`. Exit codes: 0 passed, 1 failed or partial,
 2 when the page cannot be read or the gate cannot start. A partial run is not a pass.
 
+`pnpm exec motion-kit sheet <page.html> [--out sheet.png] [--samples 8] [--to ms] [--full]` draws
+the page at evenly spaced times from 0 to the span the gate reads (or `--to`), with the input the
+gate plays, and saves the frames as one labelled PNG grid. The frames are cropped to the area where
+pixels change, unless `--full`. It also needs Playwright. Exit codes: 0 written, 2 when the page
+cannot be read, Playwright is missing, or the page has no `window.__seek`.
+
 A page names its type of motion with `<meta name="motion-kit-kind" content="idle">`. A page
 copied from a reference example keeps `<meta name="motion-kit-bar" content="<slug>">`. The gate
 then reads the type from the example's `bar.json`, so copy `bar.json` and `trace.json` into the
@@ -164,6 +170,48 @@ and the gate prints a `note:` line that says why.
 The example check is a second check. It compares a reference example's page to its own
 `trace.json`. It has no command:
 it runs in the kit's repository with `pnpm test:bars`.
+
+### The objects a page reports
+
+A page may report the things on screen that its values move. `window.__state()` returns an
+optional `objects` map next to `values`:
+
+```js
+window.__state = () => ({
+  values: { dotY },
+  objects: { dot: { box: [x, y, w, h], moves: ["dotY"], halo: 12 } },
+});
+```
+
+- `box` is `[x, y, w, h]` in CSS px of the viewport, for the frame `window.__seek` just drew. For a
+  DOM element, read it from `getBoundingClientRect()` after drawing. A page that draws on a canvas
+  works the box out itself.
+- The box is the smallest box that holds what is drawn. Leave out shadows and glows. `w` and `h`
+  are at least 1, and all four numbers are finite. A box may reach past the viewport, as
+  `getBoundingClientRect()` gives it: the gate clips it to the viewport.
+- `halo` is optional: how far the object's ink spreads past its box, in px. A shadow, a glow, a
+  blur, an outline, an SVG stroke and a glyph's overhang all spread past it. It is 4 unless set,
+  and a finite number of 0 or more. It counts for at most 16 px or the object's length (the larger
+  of `w` and `h`), whichever is larger. `getBoundingClientRect()` leaves out shadows, outlines, SVG
+  strokes and glyph overhang, so a DOM page adds their reach here.
+- `moves` lists the names of the values that change this object: its place, size, shape or look.
+  A value belongs to at most one object. Each name must be a key of `values`.
+- The set of objects stays the same in every frame. An object that is not drawn in a frame reports
+  a box of `[x, y, 1, 1]`, and the gate skips it for that frame. An object that a clip hides
+  (`overflow: hidden`, a mask) is not drawn, so it reports that box too. A box wholly outside the
+  viewport also counts as gone.
+- An effect that no value moves, such as rays or a drawn cursor, is an object with `moves: []`.
+- A value in unit `px` must move its box. An ambient object, whose box grown by its halo covers more
+  than half the viewport, is left out: a background that pans inside its still box changes its look,
+  not its place. A box that jumps far, all at once, needs a value in its `moves` that changes in that
+  frame, is not an `index`, and explains the jump. The kind gate's `objects` rule checks both
+  (`kinds/<kind>/rules.md`).
+- The kind gate's `drawn` rule screenshots pairs of frames and checks that the boxes hold what
+  changes on screen. So once a page reports objects, every drawn thing that moves needs a box. A
+  background that moves on its own is an object too: its box covers more than half the viewport,
+  and the rule reads it as ambient (`kinds/<kind>/rules.md`).
+
+Without `objects`, the gate reads the page as before.
 
 ## Project moments
 

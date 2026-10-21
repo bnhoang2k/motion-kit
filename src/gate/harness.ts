@@ -2,6 +2,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Browser, Page } from "playwright";
 import type { InputSamples } from "../core/trace.ts";
+import type { Box, ObjectRecord } from "./objects.ts";
+import { lineAt, poses, restsOf, type Pose } from "./poses.ts";
+import { rangeOf, REST_FRAMES, stillTol } from "./series.ts";
 
 /**
  * The fixed-clock harness. It opens a page from file:// in headless Chromium and drives it
@@ -14,13 +17,28 @@ import type { InputSamples } from "../core/trace.ts";
  *   feeds the page `window.__input`, which the harness sets before the page loads.
  * - `window.__state()` returns `{ values, events, units? }` read from the page's own state object,
  *   never from computed styles: `values` holds the traced numbers, `events` the named times in ms,
- *   and the optional `units` names the unit of a value (`px`, `deg`, `ratio`, `opacity`, `scale`, `s`).
+ *   and the optional `units` names the unit of a value (`px`, `deg`, `ratio`, `opacity`, `scale`, `s`). The optional
+ *   `objects` names the things on screen: `{ [name]: { box: [x, y, w, h], moves: [value names], halo? } }` (objects.ts).
+ *   The box is the one of the frame `__seek` just drew.
  *
  * The harness reads computed styles in one place only: `changedElements()`, for coverage.
  */
 
-export type GateState = { values: Record<string, number>; events: Record<string, number>; units: Record<string, string> };
-export type Frame = { ms: number; values: Record<string, number> };
+export type GateState = {
+  values: Record<string, number>;
+  events: Record<string, number>;
+  units: Record<string, string>;
+  /**
+   * The page's object record; `{}` when it reports none. An entry that is not `{ box, moves }` passes through as it
+   * came, for `checkObjects` to name, and so does a `halo` that is not a number.
+   */
+  objects: Record<string, ObjectRecord>;
+};
+/**
+ * `boxes` is present only when the page reports objects, and `scroll` (`window.scrollY`, CSS px) on exactly the frames
+ * that carry `boxes`.
+ */
+export type Frame = { ms: number; values: Record<string, number>; boxes?: Record<string, Box>; scroll?: number };
 
 export interface OpenOptions {
   /** Set as `window.__input` before the page loads: the recorded input samples. */
@@ -29,8 +47,22 @@ export interface OpenOptions {
   reducedMotion?: boolean;
   /** Adds `?seek` to the URL (the default). False opens the page on its live rAF loop. */
   seek?: boolean;
+  /** Device pixels per CSS px for screenshots (default 1). The frame sheet uses 2, so a crop stays sharp. */
+  pixelRatio?: number;
   /** Live pages only: adds `ms` to every rAF timestamp and to `performance.now()` from frame `afterFrames + 1` on, once. */
   clockGap?: { afterFrames: number; ms: number };
+  /**
+   * Values a bar holds in drawings on purpose (trace.json `stepped`). Under `?seek`, `state()`, `frames()` and
+   * `framesAt()` report each as its pose line (poses.ts `lineAt`); `rawFrames()` reports what the page holds. The
+   * harness reads the page's 1/60 s grid from 0 once and keeps it, reading up to 4 s past the last frame asked for.
+   */
+  stepped?: string[];
+  /**
+   * Live and scroll pages: the stepped values read raw inside the input window, from the input's first sample until
+   * every stepped value's pose line rests after its last one. The input drives them there, and the input rules judge
+   * what the hand sees. The line rests where the drawings rest, so it meets them at both ends of the window.
+   */
+  steppedInputRaw?: boolean;
 }
 
 export interface GatePage {
@@ -46,6 +78,10 @@ export interface GatePage {
   frames(fromMs: number, toMs: number, stepMs?: number): Promise<Frame[]>;
   /** Seeks each time in `times` (ms), in order, and reads the values at each. */
   framesAt(times: number[]): Promise<Frame[]>;
+  /** As `frames`, with every value as the page holds it: a stepped value as its drawings, not its pose line. */
+  rawFrames(fromMs: number, toMs: number, stepMs?: number): Promise<Frame[]>;
+  /** The viewport in CSS px: what a box is wholly outside of when it is off screen (objects.ts `goneIn`). */
+  viewport(): Promise<{ width: number; height: number }>;
   /** A CSS selector for each element whose transform, opacity or filter differs from its load-time look at any seek so far. */
   changedElements(): Promise<string[]>;
   /** Console messages as `<type>: <text>`, and uncaught errors as `pageerror: <message>`. */
@@ -203,6 +239,7 @@ const GATE_INIT = String.raw`(function (cfg) {
     const root = e && e.id ? "#" + CSS.escape(e.id) : "body";
     return parts.length === 0 ? root : root + " > " + parts.join(" > ");
   };
+  const isBox = (b) => Array.isArray(b) && b.length === 4 && b.every((n) => typeof n === "number");
   const need = (name) => { if (typeof window[name] !== "function") throw new Error("the page has no window." + name); };
   const state = () => {
     need("__state");
@@ -215,7 +252,27 @@ const GATE_INIT = String.raw`(function (cfg) {
     const units = {};
     if (s && typeof s.units === "object" && s.units !== null)
       for (const [k, u] of Object.entries(s.units)) if (typeof u === "string") units[k] = u;
-    return { values: pick(s && s.values), events: pick(s && s.events), units };
+    const objects = {};
+    if (s && typeof s.objects === "object" && s.objects !== null && !Array.isArray(s.objects)) {
+      const shaped = Object.values(s.objects).every((o) => o && typeof o === "object" && isBox(o.box) && Array.isArray(o.moves) && o.moves.every((m) => typeof m === "string"));
+      const copy = (o) => Object.assign({ box: Array.from(o.box), moves: Array.from(o.moves) }, o.halo !== undefined ? { halo: o.halo } : {});
+      for (const [k, o] of Object.entries(s.objects)) objects[k] = shaped ? copy(o) : o;
+    }
+    return { values: pick(s && s.values), events: pick(s && s.events), units, objects };
+  };
+  const read = (ms) => {
+    const s = state();
+    const f = { ms, values: s.values };
+    const names = Object.keys(s.objects);
+    if (names.length > 0) {
+      f.boxes = {};
+      for (const k of names) {
+        const o = s.objects[k];
+        if (o && isBox(o.box)) f.boxes[k] = Array.from(o.box);
+      }
+      f.scroll = window.scrollY;
+    }
+    return f;
   };
   const seek = (ms) => { need("__seek"); window.__seek(ms); note(); };
   const frames = (from, to, step) => {
@@ -225,14 +282,14 @@ const GATE_INIT = String.raw`(function (cfg) {
     for (let i = 0; from + i * step <= to + 1e-9; i++) {
       const ms = from + i * step;
       seek(ms);
-      out.push({ ms, values: state().values });
+      out.push(read(ms));
     }
     return out;
   };
   const framesAt = (times) => {
     need("__seek");
     need("__state");
-    return times.map((ms) => { seek(ms); return { ms, values: state().values }; });
+    return times.map((ms) => { seek(ms); return read(ms); });
   };
   window.__gate = {
     clock, baseline, seek, state, frames, framesAt,
@@ -259,6 +316,130 @@ interface GateWindow {
   };
 }
 
+type RawReads = Pick<GatePage, "seek" | "state" | "frames" | "framesAt">;
+
+/** After the last frame asked for, the harness reads ahead until each stepped value has started this many more drawings... */
+const LOOKAHEAD_DRAWINGS = 4;
+/** ...or this many frames (4 s), in steps of LOOKAHEAD_STEP frames. */
+const LOOKAHEAD_FRAMES = 240;
+const LOOKAHEAD_STEP = 30;
+
+/**
+ * The reads of a `?seek` page with stepped values. The page is a pure function of time and its fixed input, so its
+ * raw values on the 1/60 s grid are read once, from frame 0, and kept. A stepped value then reads as its pose line
+ * (poses.ts), except inside the input window when `input` is given (OpenOptions.steppedInputRaw); every other value
+ * reads as the page reports it. The pose line at a frame depends on the drawings around it, so the harness reads
+ * ahead (LOOKAHEAD_DRAWINGS) past the last frame asked for.
+ */
+function steppedReads(raw: RawReads, names: string[], input: number[][] | null): RawReads & Pick<GatePage, "rawFrames"> {
+  const grid: Record<string, number>[] = [];
+  const boxGrid: (Record<string, Box> | undefined)[] = [];
+  const scrollGrid: (number | undefined)[] = [];
+  const memo = new Map<string, { ps: Pose[]; rests: boolean[] }>();
+  let now = 0;
+  let rawWindow: [number, number] | null | undefined = input ? undefined : null;
+  const posesOf = (name: string) => {
+    let m = memo.get(name);
+    if (!m) {
+      const v = grid.map((g) => g[name] ?? Number.NaN);
+      const ps = poses(v, stillTol(v));
+      m = { ps, rests: restsOf(ps) };
+      memo.set(name, m);
+    }
+    return m;
+  };
+  const fill = async (to: number) => {
+    if (grid.length > to) return;
+    const times = Array.from({ length: to + 1 - grid.length }, (_, k) => (grid.length + k) * FRAME_MS);
+    for (const f of await raw.framesAt(times)) {
+      grid.push(f.values);
+      boxGrid.push(f.boxes);
+      scrollGrid.push(f.scroll);
+    }
+    memo.clear();
+  };
+  /** The grid through frame `hi`, and far enough past it that each stepped value's poses around `hi` are whole. */
+  const ensure = async (hi: number) => {
+    await fill(hi);
+    const short = () => names.some((n) => posesOf(n).ps.filter((p) => p.start > hi).length < LOOKAHEAD_DRAWINGS);
+    while (grid.length - 1 < hi + LOOKAHEAD_FRAMES && short()) await fill(Math.min(hi + LOOKAHEAD_FRAMES, grid.length - 1 + LOOKAHEAD_STEP));
+  };
+  const onGrid = (ms: number) => {
+    const i = Math.round(ms / FRAME_MS);
+    return Math.abs(i * FRAME_MS - ms) < 1e-6 ? i : null;
+  };
+  /** The input window: from the first sample until every stepped value's line holds still REST_FRAMES steps after the last. */
+  const inputWindow = async (): Promise<[number, number] | null> => {
+    if (rawWindow !== undefined) return rawWindow;
+    const [start, end] = [input![0]![0]!, input![input!.length - 1]![0]!];
+    const i0 = Math.ceil(end / FRAME_MS - 1e-6);
+    await fill(i0 + LOOKAHEAD_FRAMES + REST_FRAMES);
+    const still = (n: string, i: number) => {
+      const { ps, rests } = posesOf(n);
+      const at = (k: number) => lineAt(ps, rests, k) ?? grid[k]![n] ?? Number.NaN;
+      const v = grid.map((g) => g[n] ?? Number.NaN);
+      const eps = stillTol(v);
+      for (let k = i; k < i + REST_FRAMES; k++) if (!(Math.abs(at(k + 1) - at(k)) <= eps)) return false;
+      return true;
+    };
+    let i = i0;
+    while (i < i0 + LOOKAHEAD_FRAMES && !names.every((n) => still(n, i))) i++;
+    rawWindow = [start, i * FRAME_MS];
+    return rawWindow;
+  };
+  const lined = (ms: number, values: Record<string, number>) => {
+    if (rawWindow && ms >= rawWindow[0] - 1e-6 && ms <= rawWindow[1] + 1e-6) return values;
+    const out = { ...values };
+    for (const n of names) {
+      if (!(n in out)) continue;
+      const { ps, rests } = posesOf(n);
+      const x = lineAt(ps, rests, ms / FRAME_MS);
+      if (x !== null) out[n] = x;
+    }
+    return out;
+  };
+  /** The raw values at each time: from the grid where it can, by seeking elsewhere. The page is left at the last time. */
+  const rawAt = async (times: number[], ahead: boolean): Promise<Frame[]> => {
+    if (times.length === 0) return [];
+    const hi = Math.ceil(Math.max(...times) / FRAME_MS - 1e-6);
+    await (ahead ? ensure(hi) : fill(hi));
+    const off = times.filter((t) => onGrid(t) === null);
+    const sought = new Map((off.length > 0 ? await raw.framesAt(off) : []).map((f) => [f.ms, f]));
+    now = times[times.length - 1]!;
+    await raw.seek(now);
+    return times.map((ms) => {
+      const i = onGrid(ms);
+      const [values, boxes, scroll] = i !== null ? [grid[i]!, boxGrid[i], scrollGrid[i]] : [sought.get(ms)!.values, sought.get(ms)!.boxes, sought.get(ms)!.scroll];
+      return { ms, values: { ...values }, ...(boxes ? { boxes: { ...boxes }, scroll: scroll! } : {}) };
+    });
+  };
+  const grid0 = (from: number, to: number, step: number) => {
+    const times: number[] = [];
+    for (let i = 0; from + i * step <= to + 1e-9; i++) times.push(from + i * step);
+    return times;
+  };
+  const framesAt = async (times: number[]) => {
+    const fs = await rawAt(times, true);
+    if (input) await inputWindow();
+    return fs.map((f) => ({ ...f, values: lined(f.ms, f.values) }));
+  };
+  return {
+    seek: async (ms) => {
+      now = ms;
+      await raw.seek(ms);
+    },
+    state: async () => {
+      const s = await raw.state();
+      await ensure(Math.ceil(now / FRAME_MS - 1e-6));
+      if (input) await inputWindow();
+      return { ...s, values: lined(now, s.values) };
+    },
+    frames: (fromMs, toMs, stepMs = FRAME_MS) => framesAt(grid0(fromMs, toMs, stepMs)),
+    framesAt,
+    rawFrames: (fromMs, toMs, stepMs = FRAME_MS) => rawAt(grid0(fromMs, toMs, stepMs), false),
+  };
+}
+
 /** Opens `file` (a path) from file:// in a fresh browser context, with the gate hooks installed. */
 export async function openPage(file: string, options: OpenOptions = {}): Promise<GatePage> {
   browser ??= launch();
@@ -269,7 +450,7 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
     browser = undefined;
     throw e;
   }
-  const context = await b.newContext({ reducedMotion: options.reducedMotion ? "reduce" : "no-preference" });
+  const context = await b.newContext({ reducedMotion: options.reducedMotion ? "reduce" : "no-preference", deviceScaleFactor: options.pixelRatio ?? 1 });
   const cfg = { input: options.input, gap: options.clockGap ?? null };
   await context.addInitScript({ content: `${GATE_INIT}(${JSON.stringify(cfg)});` });
   const page = await context.newPage();
@@ -286,15 +467,21 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
     throw e;
   }
   // Each callback below runs in the page, so it reaches the gate through `window`, not a closure.
+  const raw: RawReads = {
+    seek: (ms) => page.evaluate((t) => (window as unknown as GateWindow).__gate.seek(t), ms),
+    state: () => page.evaluate(() => (window as unknown as GateWindow).__gate.state()),
+    frames: (fromMs, toMs, stepMs = FRAME_MS) => page.evaluate(([a, z, s]) => (window as unknown as GateWindow).__gate.frames(a, z, s), [fromMs, toMs, stepMs] as const),
+    framesAt: (times) => page.evaluate((ts) => (window as unknown as GateWindow).__gate.framesAt(ts), times),
+  };
+  const inputRaw = options.steppedInputRaw && Array.isArray(options.input) && options.input.length > 0 ? (options.input as number[][]) : null;
+  const stepped = options.seek !== false && (options.stepped ?? []).length > 0 ? steppedReads(raw, options.stepped!, inputRaw) : null;
   return {
     file,
     options: { ...options },
     page,
     hooks: () => page.evaluate(() => (window as unknown as GateWindow).__gate.hooks()),
-    seek: (ms) => page.evaluate((t) => (window as unknown as GateWindow).__gate.seek(t), ms),
-    state: () => page.evaluate(() => (window as unknown as GateWindow).__gate.state()),
-    frames: (fromMs, toMs, stepMs = FRAME_MS) => page.evaluate(([a, z, s]) => (window as unknown as GateWindow).__gate.frames(a, z, s), [fromMs, toMs, stepMs] as const),
-    framesAt: (times) => page.evaluate((ts) => (window as unknown as GateWindow).__gate.framesAt(ts), times),
+    ...(stepped ?? { ...raw, rawFrames: raw.frames }),
+    viewport: () => page.evaluate(() => ({ width: innerWidth, height: innerHeight })),
     changedElements: () => page.evaluate(() => (window as unknown as GateWindow).__gate.changed()),
     console: () => [...messages],
     rafCountAfter: (ms, windowMs) => page.evaluate(([a, w]) => (window as unknown as GateWindow).__gate.clock.rafCount(a, w), [ms, windowMs] as const),

@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="a06-squash-bounce-twos">
+<title>a06-squash-bounce-twos</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":1,"rate":2,"drop":240};
+const el = document.getElementById("a");
+function pose(f) { const n = Math.round(MOTION.period * 60); const k = Math.floor((f % n) / MOTION.rate) * MOTION.rate;
+  const u = k / n; const fall = 4 * u * (1 - u); // 0 at ground, 1 at top
+  let sx = 1, sy = 1; if (k === 0) { sx = 1.4; sy = 0.6; } else if (k === MOTION.rate || k === n - MOTION.rate) { sx = 0.85; sy = 1.2; }
+  const w = 40 * sx, h = 40 * sy; const ground = 500;
+  return { x: 620 - w / 2, y: ground - h - MOTION.drop * fall, w, h, sx, sy }; }
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const p = pose(f);
+  MK.place(el, p.x, p.y, p.w ?? 40, p.h ?? 40);
+  
+  return { values: { y: p.y, sx: p.sx, sy: p.sy }, units: {"y":"px","sx":"scale","sy":"scale"},
+    objects: { dot: { box: MK.boxOf(el), moves: ["y","sx","sy"] } } };
+} });
+</script>
+</body></html>

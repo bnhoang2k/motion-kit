@@ -168,7 +168,12 @@ function literals(r: Region): Hit[] {
 
 // ---- the wall clock ------------------------------------------------------------------------
 
-const WALL_CLOCK = /\b(setTimeout|setInterval)\s*\(|\b(performance\.now|Date\.now)\s*\(/g;
+/**
+ * Timers and time reads the fixed clock cannot see: `setTimeout`, `setInterval` and `requestIdleCallback` (named as
+ * themselves), and `performance.now()`, `Date.now()`, `new Date()` with no argument, and `document.timeline.currentTime`
+ * (named with their call parentheses, or as written for the property).
+ */
+const WALL_CLOCK = /\b(setTimeout|setInterval|requestIdleCallback)\s*\(|\b(performance\.now|Date\.now)\s*\(|\b(new\s+Date)\s*\(\s*\)|\b(document\.timeline\.currentTime)\b/g;
 
 /** Every wall-clock timer or time read whose line carries no clock marker. */
 function wallClock(r: Region): Hit[] {
@@ -178,7 +183,7 @@ function wallClock(r: Region): Hit[] {
     const to = r.raw.indexOf("\n", m.index);
     const line = r.raw.slice(from, to < 0 ? r.raw.length : to);
     if (CLOCK_MARKERS.some((k) => line.includes(k))) continue;
-    const name = m[1] ?? `${m[2]}()`;
+    const name = m[1] ?? (m[2] ? `${m[2]}()` : m[3] ? "new Date()" : m[4]!);
     out.push({
       at: m.index,
       text: `${name} runs on the wall clock, which the fixed clock cannot see; time motion on the page clock, or mark the line with a motion-kit:clock comment (the page clock's own time read) or motion-kit:not-motion (it times no motion)`,

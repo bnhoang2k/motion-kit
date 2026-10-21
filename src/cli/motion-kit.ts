@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { readTextFile } from "../core/kit-root.ts";
 import { run } from "./run.ts";
 
@@ -8,5 +9,8 @@ process.exitCode = await run(process.argv.slice(2), {
   out: (s) => process.stdout.write(s),
   err: (s) => process.stderr.write(s),
   read: readTextFile,
-  write: (p, d) => writeFileSync(p, d),
+  write: (p, d) => {
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(p, d);
+  },
 });

@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>c40-partly-offscreen</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const tt = MK.REDUCED ? 0 : t; const y = 300 - 330 * (0.5 - 0.5 * Math.cos(2 * Math.PI * tt / 1000 / MOTION.period));
+  const el = $("a"); MK.place(el, 620, y, 40, 40);
+  return { values: { y }, units: { y: "px" }, objects: { dot: { box: MK.boxOf(el), moves: ["y"] } } };
+} });
+</script>
+</body></html>

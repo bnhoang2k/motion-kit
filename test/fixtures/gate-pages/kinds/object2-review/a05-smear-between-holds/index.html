@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="a05-smear-between-holds">
+<title>a05-smear-between-holds</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2.4};
+const el = document.getElementById("a");
+function pose(f) { const n = Math.round(MOTION.period * 60); const k = f % n; const half = n / 2;
+  const side = k < half ? 0 : 1; const j = k % half;
+  const A = side === 0 ? 300 : 560, B = side === 0 ? 560 : 300;
+  if (j < half - 2) return { x: A, y: 340, w: 40 };
+  return { x: 320, y: 340, w: 240 };
+}
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const p = pose(f);
+  MK.place(el, p.x, p.y, p.w ?? 40, p.h ?? 40);
+  
+  return { values: { x: p.x, w: p.w }, units: {"x":"px","w":"px"},
+    objects: { dot: { box: MK.boxOf(el), moves: ["x","w"] } } };
+} });
+</script>
+</body></html>

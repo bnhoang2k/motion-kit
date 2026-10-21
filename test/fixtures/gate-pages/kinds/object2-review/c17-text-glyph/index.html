@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>c17-text-glyph</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+#a{z-index:1;background:none;border-radius:0;color:#fff;font:italic 32px serif;white-space:nowrap;width:auto!important;height:auto!important}</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2,"amp":200};
+const el = document.getElementById("a");
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const tt = MK.REDUCED ? 0 : t;
+  const n = Math.round(MOTION.period * 60), f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const X = (tt) => { const f = MK.frameOf(tt); return 400 + MOTION.amp * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period); };
+  const x = X(tt);
+  MK.place(el, x, 300, 40, 40);
+  el.textContent = "Wavy fjord";
+  let b = MK.boxOf(el);
+  
+  return { values: { x }, units: {"x":"px"},
+    objects: { dot: { box: b, moves: ["x"] } } };
+} });
+</script>
+</body></html>

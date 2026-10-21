@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>scroll: drawn-sticky</title>
+<style>html { background: #fff } body { margin: 0; height: 3000px; background: repeating-linear-gradient(180deg, #fff 0, #fff 20px, #ccc 20px, #ccc 40px) } #bar { position: fixed; left: 0; top: 340px; width: 40px; height: 40px; background: #333 } #head { position: sticky; top: 0; height: 64px; background: #234; color: #fff; font: 24px/64px sans-serif; padding-left: 24px }</style>
+</head>
+<body>
+<header id="head">A sticky header</header>
+<div id="bar"></div>
+<script>
+// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: a sticky header holds still in the viewport while the striped page scrolls under it. The bar is the flipbook, drawn where the page reports it.
+window.FAULT = "";
+window.VARIANT = "flipbook";
+window.SCROLLS = true;
+</script>
+<script src="scroll.js"></script>
+</body>
+</html>

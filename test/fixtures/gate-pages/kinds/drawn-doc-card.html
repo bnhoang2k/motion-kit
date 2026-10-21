@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>scroll: drawn-doc-card</title>
+<style>html { background: #fff } body { margin: 0; height: 3000px; background: repeating-linear-gradient(180deg, #fff 0, #fff 20px, #ccc 20px, #ccc 40px) } #bar { position: fixed; left: 0; top: 340px; width: 40px; height: 40px; background: #333 } #card { position: absolute; left: 400px; top: 760px; width: 320px; height: 180px; border-radius: 12px; background: #468 }</style>
+</head>
+<body>
+<div id="card"></div>
+<div id="bar"></div>
+<script>
+// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: an in-flow card the document carries, reported as an object with moves: [], scrolls into view below the fold. The bar is the flipbook, drawn where the page reports it.
+window.FAULT = "";
+window.VARIANT = "flipbook";
+window.SCROLLS = true;
+</script>
+<script src="scroll.js"></script>
+<script>
+// The card joins the record, read from the DOM like the bar.
+{
+  const card = document.getElementById("card");
+  const state = window.__state;
+  window.__state = () => {
+    const s = state();
+    const r = card.getBoundingClientRect();
+    return { ...s, objects: { ...s.objects, card: { box: [r.x, r.y, r.width, r.height], moves: [] } } };
+  };
+}
+</script>
+</body>
+</html>

@@ -1,11 +1,12 @@
-import { FRAME_MS } from "../../src/gate/harness.ts";
-import { rangeOf, round, series, spanOf, stillEps, valueNames, type KindRule } from "../../src/gate/kind-gate.ts";
+import { FRAME_MS, type GatePage } from "../../src/gate/harness.ts";
+import { rangeOf, round, series, spanOf, stillEps, valueNames, type KindRule, type RuleContext } from "../../src/gate/kind-gate.ts";
+import { leadWindow, restGains, steppedLeads } from "../../src/gate/leads.ts";
 import { inputSpan } from "../../src/gate/synthetic-input.ts";
 
 /**
- * The scroll rule (kinds/scroll/rules.md): scrolling back reverses it. The input scrolls down,
- * waits, then scrolls back to the top. Reduced motion on a scroll page (stepped states) is the
- * shared reducedMotion rule in src/gate/kind-gate.ts, so the bar gate judges it the same way.
+ * The scroll rules (kinds/scroll/rules.md): scrolling back reverses it, and a stepped drawing never runs ahead of the
+ * scroll. The input scrolls down, waits, then scrolls back to the top. Reduced motion on a scroll page (stepped
+ * states) is the shared reducedMotion rule in src/gate/kind-gate.ts, so the bar gate judges it the same way.
  */
 
 /** Scrolling back undoes at least this share of what scrolling down did. */
@@ -38,4 +39,20 @@ const reverses: KindRule = {
   },
 };
 
-export const rules: KindRule[] = [reverses];
+/**
+ * Inside the input window a stepped value reads raw (a flipbook drawn by the scroll): its drawings may not run more
+ * than 1.5 of its own drawing steps ahead of where the scroll puts it, by the value's rest-to-rest gain, nor jump off
+ * it (leads.ts). The rule is named for its line, `scroll:`; `reverses` judges scrolling back.
+ */
+const scroll: KindRule = {
+  name: "scroll",
+  async check(page, ctx) {
+    if (ctx.input?.kind !== "scroll") throw new Error("the scroll rule needs scroll input");
+    return ctx.stepped?.length ? steppedLeads(page, ctx, ctx.input, "scroll", restGains) : [];
+  },
+};
+
+export const rules: KindRule[] = [reverses, scroll];
+
+/** The stepped values `scroll` judges inside the input window, which the envelope rule leaves to it. */
+export const inputLeads = (page: GatePage, ctx: RuleContext) => leadWindow(page, ctx, ctx.input!, restGains);

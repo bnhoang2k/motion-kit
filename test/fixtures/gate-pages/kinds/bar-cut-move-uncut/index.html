@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="bar-cut-move-uncut">
+<title>bar: bar-cut-move-uncut</title>
+<style>html { background: #fff } body { margin: 0 } #dot { position: fixed; left: calc(50% - 20px); top: calc(50% - 20px); width: 40px; height: 40px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<script>
+// bar-cut-move with no cut in its trace.json: the jump is a pop.
+const MOTION = { outAtS: 0.85, outS: 0.15, outPx: -20, inPx: 20, inS: 0.22, maxStepS: 0.05 };
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const seekMode = new URLSearchParams(location.search).has("seek");
+const dot = document.getElementById("dot");
+const eis = (p) => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, p)))) / 2;
+const eout = (p) => 1 - (1 - Math.min(1, Math.max(0, p))) ** 2;
+const cutS = MOTION.outAtS + MOTION.outS;
+function xAt(t) {
+  if (t < cutS) return MOTION.outPx * eis((t - MOTION.outAtS) / MOTION.outS);
+  return MOTION.inPx * (1 - eout((t - cutS) / MOTION.inS));
+}
+let T = 0;
+const valuesAt = () => ({ x: reduced ? 0 : xAt(T) });
+function draw() { dot.style.transform = `translateX(${valuesAt().x}px)`; }
+window.__seek = (ms) => { T = ms / 1000; draw(); };
+window.__state = () => ({ values: valuesAt(), events: {}, units: { x: "px" } });
+draw();
+if (!seekMode && !reduced) {
+  let last = null, raf = 0;
+  const frame = (now) => {
+    const h = last === null ? 0 : Math.min((now - last) / 1000, MOTION.maxStepS);
+    last = now;
+    T += h;
+    draw();
+    raf = requestAnimationFrame(frame);
+  };
+  const start = () => { if (!raf) { last = null; raf = requestAnimationFrame(frame); } };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; }
+    else start();
+  });
+  start();
+}
+</script>
+</body>
+</html>

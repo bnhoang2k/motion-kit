@@ -3,9 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="motion-kit-kind" content="choreo">
-<title>marker: choreo</title>
+<title>choreo: a second tap mid-sequence is ignored</title>
+<style>html { background: #fff } body { margin: 0 } .bar { position: fixed; left: 10vw; width: 30vw; height: 40px; background: #333 } #b0 { top: 200px } #b1 { top: 260px } #b2 { top: 320px }</style>
 </head>
 <body>
-<div id="dot"></div>
+<div class="bar" id="b0"></div><div class="bar" id="b1"></div><div class="bar" id="b2"></div>
+<script>window.FAULT = ""; window.VARIANT = "ignore";</script>
+<script src="choreo.js"></script>
 </body>
 </html>

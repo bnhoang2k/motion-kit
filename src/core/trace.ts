@@ -57,6 +57,13 @@ export interface TraceJson {
   events: Record<string, number>;
   /** Times in ms where a value may jump. */
   cuts?: number[];
+  /**
+   * Names of page values (a channel's `read` key, or any other value the page reports, such as a boil frame) that
+   * hold drawings on purpose: cel on twos or threes, stop-motion, a sprite. The gates judge their pops at the drawing
+   * rate and read them elsewhere as their pose line (gate/poses.ts). The kind gate's `stepped` rule checks that the
+   * page reports each one.
+   */
+  stepped?: string[];
 }
 
 /** An event lands within 1 frame of its trace time. */
@@ -149,6 +156,10 @@ export function checkTrace(value: unknown): { trace: TraceJson | undefined; shap
 
   if (!isObj(value.events) || !Object.values(value.events).every(isNum)) p("events must map each name to a time in ms");
   if (value.cuts !== undefined && !(Array.isArray(value.cuts) && value.cuts.every(isNum))) p("cuts must be a list of times in ms");
+  if (value.stepped !== undefined) {
+    if (!(Array.isArray(value.stepped) && value.stepped.every((n) => typeof n === "string" && n !== ""))) p("stepped must be a list of value names");
+    else if (new Set(value.stepped).size !== value.stepped.length) p("stepped names a value twice");
+  }
   return { trace: shape.length === 0 ? (value as unknown as TraceJson) : undefined, shape, tolerance };
 }
 

@@ -1,6 +1,8 @@
 // An idle page for the kind gate whose loop is two long moves: the dot lifts, holds, and comes
 // back. window.CURVE picks each move's curve: "ease600", a 600 ms ease-in-out tween; "spring1s", a
-// spring with a visualDuration of 1 s; "back600", a 600 ms easeInBack that dips before it goes.
+// spring with a visualDuration of 1 s and no bounce; "back600", a 600 ms easeInBack that dips before
+// it goes. "spring-bounce" is the same spring with bounce 0.5, run once at load: a one-time spring the
+// page starts on its own passes its rest, a fault. (Looped, with its hold, it would be a designed loop.)
 // "bump-loop" is a different loop: every 1.2 s the dot rests, then bumps up and back over 480 ms.
 // None of them is bound by the attack limit.
 const CURVE = window.CURVE || "ease600";
@@ -13,7 +15,7 @@ const MOTION = {
   backOvershoot: 1.70158,    // easeInBack's dip
   bumpPeriodS: 1.2,          // the bump loop
   bumpS: 0.48,
-  spring: { visualDuration: 1, bounce: 0.2 },
+  spring: { visualDuration: 1, bounce: CURVE === "spring-bounce" ? 0.5 : 0 },
   maxStepS: 0.05,            // the live loop caps one time step
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -24,20 +26,21 @@ const eis = (p) => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, p)))) / 2;
 const w0 = (2 * Math.PI) / (1.2 * MOTION.spring.visualDuration), zeta = 1 - MOTION.spring.bounce, wd = w0 * Math.sqrt(1 - zeta * zeta);
 function springDone(u) {
   if (u <= 0) return 0;
+  if (zeta >= 1) return 1 - Math.exp(-w0 * u) * (1 + w0 * u);
   return 1 - Math.exp(-zeta * w0 * u) * (Math.cos(wd * u) + (zeta * w0 / wd) * Math.sin(wd * u));
 }
 function backDone(u) {
   const p = Math.min(1, Math.max(0, u / MOTION.easeS)), c = MOTION.backOvershoot;
   return (c + 1) * p ** 3 - c * p ** 2;
 }
-const done = (u) => (CURVE === "spring1s" ? springDone(u) : CURVE === "back600" ? backDone(u) : eis(u / MOTION.easeS));
+const done = (u) => (CURVE === "spring1s" || CURVE === "spring-bounce" ? springDone(u) : CURVE === "back600" ? backDone(u) : eis(u / MOTION.easeS));
 function valuesAt(T) {
   if (reduced) return { y: 0 };
   if (CURVE === "bump-loop") {
     const u = ((T % MOTION.bumpPeriodS) - MOTION.liftAtS) / MOTION.bumpS;
     return { y: u > 0 && u < 1 ? -MOTION.liftPx * Math.sin(Math.PI * u) ** 2 : 0 };
   }
-  const ph = T % MOTION.periodS;
+  const ph = CURVE === "spring-bounce" ? T : T % MOTION.periodS;
   return { y: -MOTION.liftPx * (done(ph - MOTION.liftAtS) - done(ph - MOTION.backAtS)) };
 }
 let T = 0;

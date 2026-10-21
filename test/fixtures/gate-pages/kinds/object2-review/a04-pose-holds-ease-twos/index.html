@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="a04-pose-holds-ease-twos">
+<title>a04-pose-holds-ease-twos</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2,"hold":0.5,"travel":0.5,"rate":2,"from":300,"to":700};
+const el = document.getElementById("a");
+function pose(f) { const n = Math.round(MOTION.period * 60); const h = Math.round(MOTION.hold * 60); const m = Math.round(MOTION.travel * 60);
+  const k = Math.floor((f % n) / MOTION.rate) * MOTION.rate; const ease = (u) => 0.5 - 0.5 * Math.cos(Math.PI * u);
+  let u; if (k < h) u = 0; else if (k < h + m) u = ease((k - h) / m); else if (k < 2 * h + m) u = 1; else u = 1 - ease((k - 2 * h - m) / m);
+  return { x: Math.round(MOTION.from + (MOTION.to - MOTION.from) * u), y: 340 }; }
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const f = MK.REDUCED ? 0 : MK.frameOf(t);
+  const p = pose(f);
+  MK.place(el, p.x, p.y, p.w ?? 40, p.h ?? 40);
+  
+  return { values: { x: p.x }, units: {"x":"px"},
+    objects: { dot: { box: MK.boxOf(el), moves: ["x"] } } };
+} });
+</script>
+</body></html>

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>idle: drawn-stripes</title>
+<style>html { background: #fff } body { margin: 0 } #dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333; box-shadow: 0 0 3px rgba(0, 0, 0, 0.35) } #sky { position: fixed; inset: 0; width: 100vw; height: 100vh }</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="dot"></div>
+<script>
+// The drawn check: sinusoidal stripes sway and slow at each turn, drawn on a canvas reported as one object that covers the viewport, behind an honest dot.
+window.VARIANT = "stripes";
+// The canvas is drawn at one px per column, one row high, and stretched down the viewport.
+{ const c = document.getElementById("sky"); [c.width, c.height] = [innerWidth, 1]; }
+</script>
+<script src="drawn.js"></script>
+</body>
+</html>

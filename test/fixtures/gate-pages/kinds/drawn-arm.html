@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>idle: drawn-arm</title>
+<style>html { background: #fff } body { margin: 0 } #dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333; box-shadow: 0 0 3px rgba(0, 0, 0, 0.35) } #body { position: fixed; left: 900px; top: 300px; width: 60px; height: 120px; background: #555 } #arm { position: fixed; left: 960px; top: 304px; width: 100px; height: 12px; background: #555; transform-origin: 0 50% }</style>
+</head>
+<body>
+<div id="body"></div>
+<div id="arm"></div>
+<div id="dot"></div>
+<script>
+// The drawn check: a body whose arm swings up and back; the body's box holds the body and the arm, so the arm changes only part of it.
+window.VARIANT = "arm";
+</script>
+<script src="drawn.js"></script>
+</body>
+</html>

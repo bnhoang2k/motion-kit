@@ -2,11 +2,12 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, type CliIo } from "../src/cli/run.ts";
+import type { SheetOptions } from "../src/gate/sheet.ts";
 
 function io(files: Record<string, string> = {}) {
   const out: string[] = [];
   const err: string[] = [];
-  const written: Record<string, string> = {};
+  const written: Record<string, string | Uint8Array> = {};
   const api: CliIo = {
     cwd: "/proj",
     out: (s) => out.push(s),
@@ -28,7 +29,7 @@ describe("motion-kit CLI", () => {
   it("resolve --out writes the merged config", () => {
     const t = io({ "/proj/motion.json": JSON.stringify({ use: { sidebar: "calm" } }) });
     expect(run(["resolve", "--out", "motion.resolved.json"], t.api)).toBe(0);
-    expect(JSON.parse(t.written["/proj/motion.resolved.json"]!).use).toEqual({ sidebar: "calm" });
+    expect(JSON.parse(t.written["/proj/motion.resolved.json"] as string).use).toEqual({ sidebar: "calm" });
   });
 
   it("names the file when JSON is broken", () => {
@@ -216,6 +217,66 @@ describe("motion-kit CLI", () => {
         expect(await run(args, t.api)).toBe(2);
         expect(t.err.join("")).toMatch(/motion-kit gate <page\.html>/);
       }
+    });
+  });
+
+  describe("sheet", () => {
+    const PAGE = '<!doctype html><meta name="motion-kit-kind" content="idle">';
+    const opens = async () => ({ chromium: { launch: async () => ({ close: async () => undefined }) } });
+    const PNG = new Uint8Array([137, 80, 78, 71]);
+
+    it("writes the sheet to sheet.png and prints its path and frame times", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      let asked: [string, SheetOptions] | undefined;
+      const frameSheet = async (file: string, options: SheetOptions) => {
+        asked = [file, options];
+        return { png: PNG, times: [0, 1500, 3000], note: "no input", view: "whole page" };
+      };
+      expect(await run(["sheet", "page.html", "--samples", "3"], t.api, { playwrightOrNull: opens, frameSheet })).toBe(0);
+      expect(asked).toEqual(["/proj/page.html", { samples: 3, full: false }]);
+      expect(t.written["/proj/sheet.png"]).toEqual(PNG);
+      expect(t.out.join("")).toBe("Wrote sheet.png: 3 frames at 0.00 s, 1.50 s, 3.00 s, no input, whole page.\n");
+    });
+
+    it("takes 8 samples by default, passes --to and --full, and writes where --out says", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      let asked: SheetOptions | undefined;
+      const frameSheet = async (_: string, options: SheetOptions) => {
+        asked = options;
+        return { png: PNG, times: [0], note: "no input", view: "whole page" };
+      };
+      expect(await run(["sheet", "page.html", "--out", "out/a.png", "--to", "8000", "--full"], t.api, { playwrightOrNull: opens, frameSheet })).toBe(0);
+      expect(asked).toEqual({ samples: 8, toMs: 8000, full: true });
+      expect(t.written["/proj/out/a.png"]).toEqual(PNG);
+    });
+
+    it("exits 2 with the usage on a bad --samples or no page", async () => {
+      for (const args of [["sheet"], ["sheet", "page.html", "--samples", "1"], ["sheet", "page.html", "--samples", "25"], ["sheet", "page.html", "--samples", "x"], ["sheet", "page.html", "--to", "0"], ["sheet", "page.html", "--to", "soon"], ["sheet", "page.html", "--to", "60001"]]) {
+        const t = io({ "/proj/page.html": PAGE });
+        expect(await run(args, t.api)).toBe(2);
+        expect(t.err.join("")).toMatch(/motion-kit sheet <page\.html>/);
+      }
+    });
+
+    it("exits 2 with the install line when Playwright is missing", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      expect(await run(["sheet", "page.html"], t.api, { playwrightOrNull: async () => null })).toBe(2);
+      expect(t.err.join("")).toBe("motion-kit sheet needs Playwright: pnpm add -D playwright && pnpm exec playwright install chromium\n");
+    });
+
+    it("prints one line and exits 2 when the sheet cannot be drawn", async () => {
+      const t = io({ "/proj/page.html": PAGE });
+      const frameSheet = async () => {
+        throw new Error("the page has no window.__seek\n    at seek");
+      };
+      expect(await run(["sheet", "page.html"], t.api, { playwrightOrNull: opens, frameSheet })).toBe(2);
+      expect(t.err.join("")).toBe("motion-kit sheet could not run: the page has no window.__seek\n");
+    });
+
+    it("exits 2 on a page it cannot read", async () => {
+      const t = io();
+      expect(await run(["sheet", "nope.html"], t.api)).toBe(2);
+      expect(t.err.join("")).toBe("Cannot read nope.html.\n");
     });
   });
 });

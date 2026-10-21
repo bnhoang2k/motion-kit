@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>s06d-parallax-striped-cards-striped-bg</title>
+<style>html,body{margin:0;background:#101418}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+body{background:repeating-linear-gradient(0deg,#101418 0 20px,#1c2430 20px 40px)} .sq{background:repeating-linear-gradient(0deg,#60c0f0 0 10px,#2060a0 10px 20px)}</style>
+</head><body>
+<div style="height:3000px;position:relative"><div class="sq" id="k0" style="position:absolute;left:200px;width:160px;height:100px"></div><div class="sq" id="k1" style="position:absolute;left:420px;width:160px;height:100px"></div><div class="sq" id="k2" style="position:absolute;left:640px;width:160px;height:100px"></div><div class="sq" id="k3" style="position:absolute;left:860px;width:160px;height:100px"></div></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "scroll", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const sy = inp.scrollY || 0; const values = {}, units = {}, objects = {};
+  for (let i = 0; i < 4; i++) { const top = 300 + (MK.REDUCED ? Math.floor(sy / 500) * 150 * (i + 1) : sy * 0.3 * (i + 1)); MK.place($("k" + i), 200 + i * 220, top, 160, 100); values["k" + i] = top; units["k" + i] = "px"; objects["k" + i] = { box: MK.boxOf($("k" + i)), moves: ["k" + i] }; }
+  return { values, units, objects };
+} });
+</script>
+</body></html>

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="bar-stepped-unmarked">
+<title>bar: bar-stepped-unmarked</title>
+<style>html { background: #fff } body { margin: 0 } #dot, #ring { position: fixed; left: calc(50% - 40px); top: calc(50% - 40px); width: 40px; height: 40px; border-radius: 50% } #dot { background: #333 } #ring { box-shadow: 0 0 0 6px #333; opacity: 0 }</style>
+</head>
+<body>
+<div id="ring"></div>
+<div id="dot"></div>
+<script>
+// The same stepped lift with no stepped field in trace.json: every pose change is a pop.
+window.FAULT = "";
+window.STEP_HZ = 15;
+</script>
+<script src="../idle.js"></script>
+</body>
+</html>

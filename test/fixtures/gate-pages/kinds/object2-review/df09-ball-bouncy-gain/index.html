@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="sim">
+<title>df09-ball-bouncy-gain</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"gravity":2400,"e":1.15,"rate":1};
+const $ = (id) => document.getElementById(id);
+function sim(ms) { // y of the ball's top at ms after the drop, by fixed 1/60 s steps
+  let y = 200, v = 0; const n = Math.floor(ms / MK.FRAME + 1e-6), dt = 1 / 60;
+  for (let k = 0; k < n; k++) { v += MOTION.gravity * dt;  y += v * dt;
+    if (y > 560) { y = 560 - (y - 560) * MOTION.e; v = -v * MOTION.e; if (Math.abs(v) < 120) { v = 0; y = 560; } } }
+  return y; }
+MK.pure({ kind: "sim", cap: MOTION.maxStep * 1000, busy: (s) => s.tap !== null && s.t < s.tap + 4000 && sim(s.t - s.tap) !== 560, draw(t, inp, s) {
+const since = s.tap === null ? -1 : MK.REDUCED ? 1e9 : t - s.tap;
+  let ms = since < 0 ? 0 : Math.min(since, 4000);
+  if (MOTION.rate > 1) ms = Math.floor(MK.frameOf(ms) / MOTION.rate) * MOTION.rate * MK.FRAME;
+  let by = Math.round(sim(ms) * 100) / 100;
+  
+  const el = $("a"); MK.place(el, 620, by, 40, 40); let b = MK.boxOf(el); 
+  return { values: { by }, units: { by: "px" }, objects: { ball: { box: b, moves: ["by"] } } };
+} });
+</script>
+</body></html>

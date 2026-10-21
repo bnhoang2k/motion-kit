@@ -1,4 +1,7 @@
 import { FRAME_MS, openPage, replayInput, type Frame, type GatePage, type InputSamples } from "./harness.ts";
+import { explainedBy, fitSlopes, NOTHING_EXPLAINED, objectOf, type ObjectRecord } from "./objects.ts";
+import { drawingsOf, stepPops, type StepPop } from "./poses.ts";
+import { series as seriesOf, stillTol } from "./series.ts";
 import { inputChanges } from "./synthetic-input.ts";
 
 /**
@@ -69,17 +72,28 @@ export const JUMP_FACTOR = 2.5;
  * moves is exempt when it keeps the pace: under ?seek the pointer holds one position per frame, so
  * a value that follows it moves in one step there by design. The step keeps the pace when its
  * change is at most JUMP_FACTOR times the larger of the frame steps before and after it on that
- * value; a pop in a move's frame does not. Scroll input gets no exemption.
+ * value; a pop in a move's frame does not. Scroll input gets no exemption. A value in `stepped` (trace.json) holds
+ * drawings on purpose, so it is judged at its drawing rate instead (drawingJumps): no drawing may spike or teleport,
+ * in lengths of the object it moves, with the same cut and pointer exemptions. `scrolled` says the bar's main kind is
+ * scroll: the flag the kind gate's objects and envelope rules use, so both gates fit and measure a stepped value alike.
  */
-export async function suddenJumps(page: GatePage, channels: string[], cuts: number[], spanMs = 3000, input: InputSamples | null = null): Promise<string[]> {
+export async function suddenJumps(page: GatePage, channels: string[], cuts: number[], spanMs = 3000, input: InputSamples | null = null, stepped: string[] = [], scrolled = false): Promise<string[]> {
   const moves = input?.kind === "pointer" ? inputChanges(input, { flags: false, end: false }) : [];
   const dt = FRAME_MS;
+  const out: string[] = [];
+  // A stepped value jumps between its drawings on purpose: it is judged at its drawing rate instead.
+  const state = stepped.length > 0 ? await page.state() : null;
+  for (const name of channels.filter((n) => stepped.includes(n))) {
+    const skip = (t: number) => cuts.some((c) => c >= t - dt && c <= t + 2 * dt) || moves.some((m) => m > t + 1e-6 && m <= t + dt + 1e-6);
+    const pop = (await drawingJumps(page, name, state?.objects ?? {}, spanMs, state?.units[name], scrolled, skip))[0];
+    if (pop) out.push(`suddenJumps: ${name} jumps ${roundLengths(pop.lengths)} object lengths in the drawing at ${round(pop.atMs)} ms, ${POP_WORDS[pop.kind]}; no cut marks it`);
+  }
+  channels = channels.filter((n) => !stepped.includes(n));
   const frames = await page.frames(0, spanMs, dt);
   const valueAt = async (ms: number, name: string) => {
     await page.seek(ms);
     return (await page.state()).values[name] ?? Number.NaN;
   };
-  const out: string[] = [];
   for (const name of channels) {
     const vs = frames.map((f) => f.values[name]);
     if (vs.length < 2 || vs.some((v) => v === undefined)) continue;
@@ -106,6 +120,38 @@ export async function suddenJumps(page: GatePage, channels: string[], cuts: numb
     }
   }
   return out;
+}
+
+/** How suddenJumps names each kind of stepped pop. */
+const POP_WORDS: Record<StepPop["kind"], string> = { spike: "a spike", teleport: "a teleport between two rests", outAndBack: "a teleport out and back" };
+
+/** A stepped value is read this much past the span, so the drawings around its last step there are whole. */
+export const MOVE_READ_AHEAD_MS = 4000;
+
+/**
+ * The pops of stepped value `name` (poses.ts `stepPops`), from its raw frames and the raw boxes of the object that
+ * moves it in `objects` (the page's record; none: it moves no object), in the page's viewport, with `atMs` where the
+ * drawing after the pop's first step starts. Its steps are measured with its fitted slopes (fitSlopes on the span's
+ * frames, the fit the objects rule checks), and a value with none takes off what the object's fitted values explain
+ * (explainedBy, on the read's frames); `scrolled` says the page is a scroll page, the same flag the objects rule
+ * fits with, so the drawings carry the scroll. Only pops inside the span count, and no step is judged where `skip`
+ * (the frame before the step, in ms) is true; the frames are read MOVE_READ_AHEAD_MS further, so a step near the end
+ * of the span is judged against the drawings after it, and a drawing that holds to the end of that read is a rest. The still tolerance that splits
+ * the drawings comes from the value's range inside the span, one outlier left out at each end (robustRange): one wild
+ * frame, past the span or at a cut, cannot merge drawings.
+ */
+export async function drawingJumps(page: GatePage, name: string, objects: Record<string, ObjectRecord>, spanMs: number, unit: string | undefined, scrolled: boolean, skip: (ms: number) => boolean): Promise<(StepPop & { atMs: number })[]> {
+  const frames = await page.rawFrames(0, spanMs + MOVE_READ_AHEAD_MS);
+  const ms = (f: number) => f * FRAME_MS;
+  const inSpan = frames.slice(0, Math.floor(spanMs / FRAME_MS + 1e-6) + 1);
+  const object = objectOf(objects).get(name) ?? null;
+  const fit = object === null ? null : fitSlopes(inSpan, object, objects[object]!.moves, scrolled);
+  const judged = seriesOf(inSpan, name);
+  const ds = drawingsOf(frames, name, object, stillTol(judged), await page.viewport(), scrolled);
+  const explained = fit === null ? NOTHING_EXPLAINED : explainedBy(frames, fit, name);
+  return stepPops(ds, unit, fit?.slopes.get(name) ?? null, (f) => skip(ms(f - 1)), frames.length - 1, fit?.shifted ?? false, explained)
+    .filter((p) => ms(p.atFrame) <= spanMs + 1e-6)
+    .map((p) => ({ ...p, atMs: ms(p.atFrame) }));
 }
 
 /** The clock gap realClockGap injects into the live loop. */
@@ -139,7 +185,8 @@ export async function realClockGap(page: GatePage, opts: RealClockGapOptions = {
   const { input, spanMs = 3000 } = opts;
   const drive = opts.drive ?? (input ? (live: GatePage) => replayInput(live, input) : undefined);
   if (page.options.seek === false) throw new Error("realClockGap needs a ?seek page to set the one-frame budget");
-  const seekFrames = await page.frames(0, spanMs);
+  // The live run reads every value raw, so the budget does too: a stepped value's budget is its largest drawing step.
+  const seekFrames = await page.rawFrames(0, spanMs);
   const budget = new Map<string, number>();
   for (let i = 1; i < seekFrames.length; i++) {
     for (const [name, v] of Object.entries(seekFrames[i]!.values)) {
@@ -179,3 +226,5 @@ export async function realClockGap(page: GatePage, opts: RealClockGapOptions = {
 }
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
+/** Object lengths and speed ratios print to 2 decimals. */
+export const roundLengths = (n: number) => Math.round(n * 100) / 100;

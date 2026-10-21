@@ -1,6 +1,6 @@
 {
   "name": "motion-kit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "One set of motion numbers for Motion, three.js and Blender.",
   "private": true,
   "type": "module",

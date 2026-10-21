@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>idle: drawn-sweep</title>
+<style>html { background: #fff } body { margin: 0 } #dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333; box-shadow: 0 0 3px rgba(0, 0, 0, 0.35) } #panel { position: fixed; left: 200px; top: 120px; width: 880px; height: 480px; background: #223 } #band { position: fixed; left: 200px; top: 120px; width: 120px; height: 480px; background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0)) }</style>
+</head>
+<body>
+<div id="panel"></div>
+<div id="band"></div>
+<div id="dot"></div>
+<script>
+// The drawn check: a soft band of light, an object with its own box, sweeps across a dark panel and back.
+window.VARIANT = "sweep";
+</script>
+<script src="drawn.js"></script>
+</body>
+</html>

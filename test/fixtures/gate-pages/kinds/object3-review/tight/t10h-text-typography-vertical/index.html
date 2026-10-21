@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t10h-text-typography-vertical</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+#w{position:absolute;left:500px;top:0;font:48px/1 Georgia,serif;color:#e8e8e8;white-space:nowrap}
+</style>
+</head><body>
+<div id="w"><span id="a">Typography</span></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;
+const y = 320 + 200 * Math.sin(ph); $("w").style.top = y + "px";
+return { values: { y }, units: { y: "px" }, objects: { word: { box: MK.boxOf($("a")), moves: ["y"], halo: 4 } } };
+} });
+</script>
+</body></html>

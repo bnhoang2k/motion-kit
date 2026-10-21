@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>idle: drawn-aurora</title>
+<style>html { background: #fff } body { margin: 0 } #dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333; box-shadow: 0 0 3px rgba(0, 0, 0, 0.35) } #sky { position: fixed; inset: 0; width: 100vw; height: 100vh }</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="dot"></div>
+<script>
+// The drawn check: an aurora that shimmers over the whole sky, reported as one object that covers the viewport, behind an honest dot.
+window.VARIANT = "aurora";
+// The canvas is drawn at a sixteenth of the viewport's px, and scaled up smoothly.
+{ const c = document.getElementById("sky"); [c.width, c.height] = [Math.round(innerWidth / 16), Math.round(innerHeight / 16)]; }
+</script>
+<script src="drawn.js"></script>
+</body>
+</html>

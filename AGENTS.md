@@ -12,11 +12,24 @@ motion is a `kind` (`kinds/`).
 Write down each moment on the page that moves. Examples: the first view, an idle loop while
 reading, hover over a set of choices, the sign-up tap.
 
-## 2. Check the reference examples
+## 2. Decide whether each moment should move
+
+Ask how often a person sees it:
+
+- 100+ times a day (keyboard shortcuts, command palette): no animation.
+- Tens of times a day (hover, list navigation): barely any, or none.
+- Occasionally (modals, drawers, toasts): a normal transition.
+- Rarely (onboarding, success): delight goes here.
+
+Never animate an action started from the keyboard. Then name the purpose in one word: spatial
+consistency, state change, explanation, feedback, or avoiding a jarring cut. If the only purpose
+is that it looks good and people see it often, drop the motion. Carry on with the moments left.
+
+## 3. Check the reference examples
 
 Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each moment.
 
-## 3. Take one path per moment
+## 4. Take one path per moment
 
 - **Copy:** a reference example fits. Copy these files from `node_modules/motion-kit/bars/<slug>/`
   into one folder of your project: `index.html`, `bar.json`, `trace.json`, and the `fonts/` folder
@@ -33,7 +46,7 @@ Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each momen
   motion: read `node_modules/motion-kit/kinds/<kind>/rules.md` and `dials.json`. Then tell the
   person you are building for that no reference example covers this moment.
 
-## 4. Use the numbers, not literals
+## 5. Use the numbers, not literals
 
 - Short transitions (tap feedback, enter, exit, layout move, attention, celebrate): call
   `transition(cfg, feel, move, { byTouch })` from `motion-kit/motion`, or `tx(...)` from
@@ -46,7 +59,7 @@ Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each momen
   into code.
 - Respect reduced motion. Use `reducedTransition(cfg, feel, move)` when the person asks for it.
 
-## 5. Run the gate
+## 6. Run the gate
 
 Run the gate on every page you build or copy:
 
@@ -56,3 +69,20 @@ npx --no motion-kit gate <page.html>
 
 `motion-kit init` already set up Playwright, which the gate needs. It prints `passed`, `partial`
 or `failed: n`. A partial run is not a pass. Fix each failure line, then run the gate again.
+
+## 7. Look at the motion
+
+The gate checks numbers. It cannot tell you whether the motion looks right. After the gate
+passes, draw the page over time and read the image:
+
+```bash
+npx --no motion-kit sheet <page.html> --out sheet.png
+```
+
+It saves one PNG: the page at 8 evenly spaced times, with the same input the gate plays. Each
+frame shows its time and the input at that time. A red ring marks where the pointer is held. The
+frames are cropped to the area where pixels change; add `--full` to see the whole page. Use
+`--samples <n>` (2 to 24) for more frames, and `--to <ms>` to cover a longer loop.
+
+Read `sheet.png`. Compare it with the reference example you picked. Fix what looks wrong, then run
+the gate and the sheet again.

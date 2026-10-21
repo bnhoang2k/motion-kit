@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { validateBar, type BarJson } from "../../src/core/bar.ts";
 import { barGate, checkTrace } from "../../src/gate/bar-gate.ts";
 import { plantFault } from "../../src/gate/faults.ts";
-import { closeBrowser } from "../../src/gate/harness.ts";
+import { closeBrowser, openPage } from "../../src/gate/harness.ts";
 import type { Verdict } from "../../src/gate/verdict.ts";
 import { withBarCopy } from "./bar-gate-suite.ts";
 
@@ -221,6 +221,37 @@ describe("the bar gate", () => {
     expect(withInput([[0, 10]])).toEqual([bad]);
     expect(withInput([[0, 10, 20, 1, 5]])).toEqual([bad]);
     expect(checkTrace({ ...demoTrace(), input: { kind: "scroll", samples: [[0, 10, 1]] } }).shape).toEqual(["trace.json: each scroll input sample must be 2 numbers"]);
+  });
+
+  it("accepts stepped as a list of distinct value names, a channel's read or another page value", () => {
+    const reads = demoTrace().channels.map((c) => c.read as string);
+    const withStepped = (stepped: unknown) => checkTrace({ ...demoTrace(), stepped }).shape;
+    expect(withStepped([reads[0]])).toEqual([]);
+    expect(withStepped([reads[0], "boil"])).toEqual([]);
+    expect(withStepped([reads[0], reads[0]])).toEqual(["trace.json: stepped names a value twice"]);
+    expect(withStepped("y")).toEqual(["trace.json: stepped must be a list of value names"]);
+    expect(withStepped([""])).toEqual(["trace.json: stepped must be a list of value names"]);
+  });
+
+  it("a stepped bar: the trace compares the drawings the original held, and suddenJumps judges them at the drawing rate", async () => {
+    // gate-demo with its lift y drawn 12 times a second, and a trace recorded from those drawings.
+    const html = demoFile("index.html").replace("return { y: -MOTION.lift.px * s,", "return { y: -MOTION.lift.px * share(Math.floor(T * 12 + 1e-9) / 12 % MOTION.loop.periodS),");
+    expect(html).not.toBe(demoFile("index.html"));
+    const run = (stepped: string[]) =>
+      withBarCopy(DEMO, { "index.html": html }, async (copy) => {
+        const trace = demoTrace() as ReturnType<typeof demoTrace> & { samples: number[][] };
+        const p = await openPage(path.join(copy, "index.html"));
+        try {
+          const rows = await p.framesAt(trace.samples.map((r) => r[0]!));
+          trace.samples = trace.samples.map((r, i) => [r[0]!, rows[i]!.values.y!, r[2]!]);
+        } finally {
+          await p.close();
+        }
+        writeFileSync(path.join(copy, "trace.json"), JSON.stringify({ ...trace, stepped }));
+        return barGate(copy);
+      });
+    expect((await run(["y"])).failures).toEqual([]);
+    expect(failing(await run([]))).toEqual(["suddenJumps"]);
   });
 
   it("fails a trace.json whose fps is not 60, or with fewer than 2 channels", async () => {

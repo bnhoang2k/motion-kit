@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="bar-stepped-set">
+<title>bar: bar-stepped-set</title>
+<style>html { background: #fff } body { margin: 0 } #dot, #ring { position: fixed; left: calc(50% - 40px); top: calc(50% - 40px); width: 40px; height: 40px; border-radius: 50% } #dot { background: #333 } #ring { box-shadow: 0 0 0 6px #333; opacity: 0 }</style>
+</head>
+<body>
+<div id="ring"></div>
+<div id="dot"></div>
+<script>
+// A stepped lift of 60 px, 1.5 lengths of the 40 px dot, set in one pose out of its rest: a pop.
+window.FAULT = "set";
+window.STEP_HZ = 15;
+</script>
+<script src="../idle.js"></script>
+</body>
+</html>

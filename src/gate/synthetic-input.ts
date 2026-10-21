@@ -13,6 +13,9 @@ import { FRAME_MS, replayInput, sleep, type GatePage, type InputSamples } from "
  *   samples hold the window's scroll position, `[ms, scrollY]`. The ticks come close together, as
  *   in a flick, so the live run's clock gap (after 6 frames) lands while most of the scroll is
  *   still ahead: a page with no time-step cap then moves past its one-frame budget.
+ * - choreo and sim: a tap at the viewport center: a press, lifted one frame later. A page that
+ *   starts its motion on load and ignores the tap is judged on its load motion instead (see
+ *   `inputAndSpan` in kind-gate.ts).
  * - idle: none.
  *
  * The input starts 250 ms in, so the page shows a still start first. A page that is still moving
@@ -46,6 +49,10 @@ export function syntheticInput(kind: KindName, startMs = INPUT_START_MS): InputS
       kind: "pointer",
       samples: unit.map(([u, w], i): [number, number, number] => [(first + i) * FRAME_MS, x0 + k * u, y0 + k * w]),
     };
+  }
+  if (kind === "choreo" || kind === "sim") {
+    const [x, y] = VIEWPORT_CENTER;
+    return { kind: "pointer", samples: [[first * FRAME_MS, x, y, 1], [(first + 1) * FRAME_MS, x, y, 0]] };
   }
   if (kind === "scroll") {
     const start = first;

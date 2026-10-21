@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>cf22-arm-in-body-box</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="sq" id="b" style="background:#303840"></div><div class="sq" id="arm" style="background:#f0c040;transform-origin:0 50%"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":2};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const tt = MK.REDUCED ? 0 : t; const ang = 30 * Math.sin(2 * Math.PI * tt / 1000 / MOTION.period);
+  MK.place($("b"), 500, 260, 200, 200); MK.place($("arm"), 600, 356, 40, 8); $("arm").style.transform = "rotate(" + ang + "deg)";
+  return { values: { ang }, units: { ang: "deg" }, objects: { body: { box: MK.boxOf($("b")), moves: ["ang"] } } };
+} });
+</script>
+</body></html>

@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="s03f-ticker-skip-unexplained">
+<title>s03f-ticker-skip-unexplained</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+
+</style>
+</head><body>
+<div class="sq" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"hold":7,"period":1.1666666666666667};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const f = MK.REDUCED ? 17 : MK.frameOf(t); const k = Math.floor(f / MOTION.hold); const m = k % 10; const n = m <= 5 ? m : 10 - m;
+const x = 300 + 48 * n; const bx = x + (m === 3 ? 80 : 0); MK.place($("a"), bx, 340, 40, 40);
+return { values: { x: x }, units: { x: "px" }, objects: { dot: { box: MK.boxOf($("a")), moves: ["x"] } } };
+} });
+</script>
+</body></html>

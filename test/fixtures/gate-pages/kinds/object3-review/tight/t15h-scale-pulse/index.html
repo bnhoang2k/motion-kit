@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t15h-scale-pulse</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;
+const sc = 0.75 + 0.25 * Math.sin(ph); MK.place($("a"), 600, 320, 80, 80); $("a").style.transform = "scale(" + sc + ")";
+return { values: { sc }, units: { sc: "scale" }, objects: { dot: { box: MK.boxOf($("a")), moves: ["sc"] } } };
+} });
+</script>
+</body></html>

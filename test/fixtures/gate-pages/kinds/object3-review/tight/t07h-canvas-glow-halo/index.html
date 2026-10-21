@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t07h-canvas-glow-halo</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+
+</style>
+</head><body>
+<canvas id="c" width="1280" height="720" style="position:absolute;left:0;top:0;width:1280px;height:720px"></canvas>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;
+const sx = 600; const sy = 335 + 200 * Math.sin(ph);
+const g = $("c").getContext("2d"); g.clearRect(0, 0, 1280, 720); g.save(); g.shadowColor = "#ffe080"; g.shadowBlur = 16;
+g.fillStyle = "#f0c040"; g.beginPath(); g.arc(sx + 25, sy + 25, 25, 0, 2 * Math.PI); g.fill(); g.restore();
+return { values: { sy }, units: { sy: "px" }, objects: { orb: { box: [sx, sy, 50, 50], moves: ["sy"], halo: 20 } } };
+} });
+</script>
+</body></html>

@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="scroll">
+<title>p05h</title>
+<style>html,body{margin:0;background:#101418}
+.fx{position:fixed;z-index:5}
+.ab{position:absolute;z-index:5}
+</style>
+</head><body>
+<div style="position:absolute;left:0;top:0;width:100%;height:3000px;z-index:0;background:linear-gradient(#0c1830,#5a3060)"></div><div style="height:3000px"></div>
+<div class="fx" id="c" style="background:#d0e0f0;border-radius:6px"></div>
+<script src="../mk.js"></script>
+<script src="../rig.js"></script>
+<script>
+const H = RIG.H, W = RIG.W;
+const el = (id) => document.getElementById(id);
+const FAULT = false;
+const c = el("c"), cw = 200, ch = 80, cx = Math.round(W / 2 - cw / 2), y0 = Math.round(H / 2 - ch / 2);
+const yOf = (s) => y0 - MOTION.p * s.y;
+const MOTION = {"maxStep":0.05,"redStep":500,"smooth":0,"p":0.97};
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, prevTarget: 0 }),
+  step(s, dt, inp, t) { RIG.scrollStep(s, dt, inp, MOTION); },
+  render(s) { MK.place(c, cx, FAULT ? y0 : yOf(s), cw, ch); },
+  report(s) { const cardY = yOf(s); const box = FAULT ? [cx, cardY, cw, ch] : MK.boxOf(c);
+    return { values: { cardY }, units: { cardY: "px" }, objects: { card: { box, moves: ["cardY"] } } }; },
+});
+</script>
+</body></html>

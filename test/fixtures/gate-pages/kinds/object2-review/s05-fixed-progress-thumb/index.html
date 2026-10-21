@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="s05-fixed-progress-thumb">
+<title>s05-fixed-progress-thumb</title>
+<style>html,body{margin:0;background:#101418}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div style="height:3000px"></div><div class="sq" id="th" style="position:fixed;height:8px;width:60px"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"per":25};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "scroll", cap: MOTION.maxStep * 1000, draw(t, inp, s) {
+const y = MK.REDUCED ? Math.floor(inp.scrollY / 500) * 500 : (inp.scrollY || 0); const tx = 20 + 10 * Math.floor(y / MOTION.per);
+  MK.place($("th"), tx, 20, 60, 8);
+  return { values: { tx }, units: { tx: "px" }, objects: { thumb: { box: MK.boxOf($("th")), moves: ["tx"] } } };
+} });
+</script>
+</body></html>

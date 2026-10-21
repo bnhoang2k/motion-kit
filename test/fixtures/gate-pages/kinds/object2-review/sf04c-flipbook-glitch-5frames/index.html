@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="sf04c-flipbook-glitch-5frames">
+<title>sf04c-flipbook-glitch-5frames</title>
+<style>html,body{margin:0;background:#101418}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+body{background:repeating-linear-gradient(0deg,#101418 0 20px,#1c2430 20px 40px)} #a{border-radius:0}</style>
+</head><body>
+<div style="height:3000px"></div><div class="o" id="a" style="position:fixed"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"per":20,"stepPx":12,"smooth":0.12};
+const el = document.getElementById("a");
+function fxOf(s) {
+  if (MK.REDUCED) return 300 + 120 * Math.floor(s.target / 500);
+  let d = Math.floor(s.y / MOTION.per);
+  if (s.t > 370 && s.t < 450) d -= 3;
+  return 300 + MOTION.stepPx * d;
+}
+MK.run({ kind: "scroll", cap: MOTION.maxStep * 1000,
+  init: () => ({ y: 0, target: 0, t: 0, prevT: 0, moving: 0 }),
+  step(s, dt, inp, t) {
+    s.t = t; s.prevT = s.target; s.target = inp.scrollY;
+    if (MK.REDUCED) s.y = s.target; else { s.y += (s.target - s.y) * (1 - Math.exp(-dt / MOTION.smooth)); if (Math.abs(s.target - s.y) < 0.5) s.y = s.target; }
+  },
+  render(s) { MK.place(el, fxOf(s), 300, 40, 40); },
+  report(s) { const fx = fxOf(s); return { values: { fx }, units: { fx: "px" }, objects: { dot: { box: MK.boxOf(el), moves: ["fx"] } } }; },
+});
+</script>
+</body></html>

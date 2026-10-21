@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-kind" content="idle">
+<title>t09h-text-gyp-span</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+#w{position:absolute;top:300px;left:0;font:48px/3 Georgia,serif;color:#e8e8e8;white-space:nowrap} #a{display:inline}
+</style>
+</head><body>
+<div id="w"><span id="a">gyp</span></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"period":3};
+const $ = (id) => document.getElementById(id);
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000,  draw(t, inp, s) {
+const ph = MK.REDUCED ? 0 : 2 * Math.PI * t / 1000 / MOTION.period;
+const x = 500 + 300 * Math.sin(ph); $("w").style.left = x + "px";
+return { values: { x }, units: { x: "px" }, objects: { word: { box: MK.boxOf($("a")), moves: ["x"] } } };
+} });
+</script>
+</body></html>

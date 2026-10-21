@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="motion-kit-bar" content="af05e-forged-holds-2L">
+<title>af05e-forged-holds-2L</title>
+<style>html,body{margin:0;background:#101418;height:100%;overflow:hidden}
+.o{position:absolute;background:#f0c040;border-radius:50%}
+.sq{position:absolute;background:#60c0f0}
+</style>
+</head><body>
+<div class="o" id="a"></div>
+<script src="../mk.js"></script>
+<script>
+const MOTION = {"maxStep":0.05,"rate":2};
+const el = document.getElementById("a");
+function pose(f) { let x; if (f < 60) x = 300 + 2 * Math.floor(f / 2); else if (f < 67) x = 360; else if (f < 74) x = 440; else x = 440 + 2 * Math.floor((Math.min(f, 134) - 74) / 2); return { x, y: 340 }; }
+MK.pure({ kind: "idle", cap: MOTION.maxStep * 1000, draw(t) {
+  const f = MK.REDUCED ? 9999 : MK.frameOf(t);
+  const p = pose(f);
+  MK.place(el, p.x, p.y, p.w ?? 40, p.h ?? 40);
+  
+  return { values: { x: p.x }, units: {"x":"px"},
+    objects: { dot: { box: MK.boxOf(el), moves: ["x"] } } };
+} });
+</script>
+</body></html>
