@@ -10,7 +10,11 @@
 // does nothing under reduced motion, since a shake has no end state to show; "toast" slides every
 // bar out, holds it there 1.5 s and slides it back, ignoring a tap while it plays, and under
 // reduced motion shows the held state in one frame and leaves it in one frame when it would slide
-// back.
+// back. "rider" adds a close button, #close, that rides bar b0: its centre sits at the viewport's mid height
+// and MOTION.rideFromPx plus b0 on x, and it shows once b0 has moved. A press on it, in ?seek judged
+// against where it is drawn at the press's own time, is a close, not a tap: the bars go on to a dock at 100 px, from
+// where they are, in every state, so the sequence rests there when the button is pressed, and the repeated press of the
+// tap lands on the button only while it rides under the tap's spot.
 // window.FAULT plants one fault: "snap-back" (a tap during the sequence jumps every bar back to
 // the start and plays it again), "freeze" (a tap during the sequence stops every bar where it is),
 // "one-onset" (every bar starts in the same frame), "raf-forever" (the live loop never stops),
@@ -20,7 +24,9 @@
 // variant, under reduced motion a tap does nothing), "set-piece" (the last bar is set in one frame,
 // not slid), "fade-rises" (an opacity o falls with the first tap, then rises again before it
 // rests), "live-stalls" (the live loop sleeps when no bar is in flight, so on the pause variant it
-// never plays the bars after the first) or "creep" (the last bar slides for 20 s).
+// never plays the bars after the first), "creep" (the last bar slides for 20 s) or "rider-freeze" (on the rider
+// variant, a press on the close button while the bars move stops them where they are; at rest it sends them back to
+// the start).
 const FAULT = window.FAULT || "";
 const VARIANT = window.VARIANT || "";
 const MOTION = {
@@ -33,6 +39,9 @@ const MOTION = {
   riseTo: 0.3,      // and where it rises to
   loadAtS: 0.1,     // the "load" variant starts this long after load
   maxStepS: 0.05,   // the live loop caps one time step
+  closePx: 32,      // the rider variant's close button: its side
+  rideFromPx: 509,  // and where its centre sits on x while b0 is 0 (it rides b0 from there, at y 360): 640, the tap's spot, at b0 131
+  dockPx: 100,      // where a press on the close button sends the bars
 };
 const BARS = 3;
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -40,10 +49,10 @@ const seekMode = new URLSearchParams(location.search).has("seek");
 const els = [...Array(BARS)].map((_, i) => document.getElementById(`b${i}`));
 const easeOut = (p) => 1 - (1 - p) ** 3;
 // The live run counts presses, so a tap pressed and lifted inside one frame still lands.
-const hand = { presses: 0 };
+const hand = { presses: 0, closes: 0 };
 let S;
 function reset() {
-  S = { t: 0, down: false, presses: 0, target: 0, loaded: false, triggers: 0, oStart: null, segs: [...Array(BARS)].map(() => ({ from: 0, to: 0, start: 0, dur: 0 })) };
+  S = { t: 0, down: false, presses: 0, closes: 0, target: 0, loaded: false, triggers: 0, oStart: null, segs: [...Array(BARS)].map(() => ({ from: 0, to: 0, start: 0, dur: 0 })) };
   // Under reduced motion a sequence the page starts by itself shows its end from the first frame.
   if (reduced && (VARIANT === "load" || FAULT === "reduced-preset")) {
     const to = MOTION.travelPx;
@@ -70,11 +79,39 @@ function at(seg, t) {
 // A back or hold segment starts and ends at the same value, so it plays until its time is up.
 const playing = (t) => S.segs.some((g) => at(g, t) !== endOf(g) || (g.back && t < g.start + g.dur - 1e-9) || (g.hold !== undefined && t < g.start + 2 * g.dur + g.hold - 1e-9));
 // Under ?seek the pointer comes from window.__input samples [ms, x, y] or [ms, x, y, down].
-function downAt(ms) {
+function sampleAt(ms) {
   const s = window.__input || [];
   let p = null;
   for (const q of s) if (q[0] <= ms + 1e-6) p = q;
+  return p;
+}
+function downAt(ms) {
+  const p = sampleAt(ms), s = window.__input || [];
   return !!p && p[3] !== 0 && ms <= s[s.length - 1][0] + 1e-6;
+}
+// The rider variant's close button, as drawn when b0 is at `x`: a box, shown once b0 has moved.
+const closeEl = VARIANT === "rider" ? document.getElementById("close") : null;
+const closeBox = (t) => {
+  const c = MOTION.rideFromPx + at(S.segs[0], t), h = MOTION.closePx / 2;
+  return { x: c - h, y: 360 - h, on: at(S.segs[0], t) > 0.5 };
+};
+const hitsClose = (t, px, py) => {
+  if (!closeEl) return false;
+  const b = closeBox(t);
+  return b.on && px >= b.x && px <= b.x + MOTION.closePx && py >= b.y && py <= b.y + MOTION.closePx;
+};
+// A press on the close button sends the bars on to the dock, from where they are, now or staggered.
+function closePress(t) {
+  S.triggers++;
+  const mid = playing(t);
+  const to = FAULT === "rider-freeze" ? 0 : MOTION.dockPx;
+  S.target = to / MOTION.travelPx;
+  S.segs = S.segs.map((g, i) => {
+    const x = at(g, t);
+    if (reduced) return { from: x, to, start: t, dur: 0 };
+    if (mid && FAULT === "rider-freeze") return { from: x, to: x, start: t, dur: 0 };
+    return { from: x, to, start: t + (mid ? 0 : i * MOTION.staggerS), dur: (MOTION.slideS * Math.abs(to - x)) / MOTION.travelPx };
+  });
 }
 function trigger(t) {
   const mid = playing(t);
@@ -121,8 +158,15 @@ function step(h) {
   } else {
     if (seekMode) {
       const down = downAt(end * 1000);
-      if (down && !S.down) trigger(end);
+      if (down && !S.down) {
+        const p = sampleAt(end * 1000);
+        if (hitsClose(p[0] / 1000, p[1], p[2])) closePress(end);
+        else trigger(end);
+      }
       S.down = down;
+    } else if (hand.closes > S.closes) {
+      S.closes = hand.closes;
+      closePress(end);
     } else if (hand.presses > S.presses) {
       S.presses = hand.presses;
       trigger(end);
@@ -141,6 +185,10 @@ function oAt(t) {
 const fading = (t) => FAULT === "fade-rises" && S.oStart !== null && !reduced && t < S.oStart + MOTION.slideS + MOTION.riseS;
 const values = () => ({ ...Object.fromEntries(S.segs.map((g, i) => [`b${i}`, at(g, S.t)])), ...(FAULT === "fade-rises" ? { o: oAt(S.t) } : {}) });
 function draw() {
+  if (closeEl) {
+    const b = closeBox(S.t);
+    closeEl.style.cssText = `width:${MOTION.closePx}px;height:${MOTION.closePx}px;transform:translate(${b.x}px,${b.y}px);visibility:${b.on ? "visible" : "hidden"}`;
+  }
   const v = values();
   els.forEach((el, i) => { el.style.transform = `translateX(${v[`b${i}`]}px)`; });
 }
@@ -172,6 +220,10 @@ if (!seekMode) {
     else { raf = 0; last = null; }
   };
   const wake = () => { if (!raf) raf = requestAnimationFrame(frame); };
-  addEventListener("pointerdown", () => { hand.presses++; wake(); });
+  addEventListener("pointerdown", (e) => {
+    if (hitsClose(S.t, e.clientX, e.clientY)) hand.closes++;
+    else hand.presses++;
+    wake();
+  });
   wake();
 }

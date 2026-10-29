@@ -10,10 +10,10 @@
 <div id="bar"></div>
 <script>
 // The drawn check on a scroll page that scrolls itself under ?seek: the striped page moves with every scroll, so a
-// pair that spans a scroll is compared in both frames of reference. The bar is the flipbook, drawn where the page
-// reports it.
+// pair that spans a scroll is compared in both frames of reference. The bar is a smooth follower, drawn where the page
+// reports it (a flipbook's drawings are jumps to the sudden-jumps rule on a page that does not name them stepped).
 window.FAULT = "";
-window.VARIANT = "flipbook";
+window.VARIANT = "stepped";
 window.SCROLLS = true;
 </script>
 <script src="scroll.js"></script>

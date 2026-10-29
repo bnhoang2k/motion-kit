@@ -10,9 +10,9 @@
 <header id="head">A sticky header</header>
 <div id="bar"></div>
 <script>
-// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: a sticky header holds still in the viewport while the striped page scrolls under it. The bar is the flipbook, drawn where the page reports it.
+// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: a sticky header holds still in the viewport while the striped page scrolls under it. The bar is a smooth follower, drawn where the page reports it (a flipbook's drawings step by design, which the sudden-jumps rule reads as jumps on a page that does not name them stepped).
 window.FAULT = "";
-window.VARIANT = "flipbook";
+window.VARIANT = "stepped";
 window.SCROLLS = true;
 </script>
 <script src="scroll.js"></script>

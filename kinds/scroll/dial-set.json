@@ -1,0 +1,4 @@
+[
+  { "name": "scroll.smooth", "unit": "s", "meaning": "How far the motion lags behind the scroll position, as a time constant." },
+  { "name": "scroll.maxStep", "unit": "s", "meaning": "The longest time step the scroll follow takes in one frame, so a stall cannot make it jump." }
+]

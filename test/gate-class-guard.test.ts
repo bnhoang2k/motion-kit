@@ -25,7 +25,9 @@ const slugs = readdirSync(path.join(ROOT, "bars")).filter((d) => /^\d+-/.test(d)
 describe("the class guard", () => {
   it("finds the gate code and the bars", () => {
     expect(gateFiles.length).toBeGreaterThan(5);
-    expect(slugs.length).toBeGreaterThan(0);
+    // Every bar folder, and no other. The list may be empty.
+    const folders = readdirSync(path.join(ROOT, "bars"), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    expect(slugs.sort()).toEqual(folders.sort());
   });
 
   it.each(slugs)("no gate code names bar %s", (slug) => {

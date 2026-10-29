@@ -43,7 +43,7 @@ Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each momen
   audit: move every motion number into `MOTION` or the `KNOBS` block. If you keep the example's
   tag by mistake, the gate still runs the full audit, and prints a `note:` line that says why.
 - **Build:** nothing fits. Use only the rules and default settings for that type of continuous
-  motion: read `node_modules/motion-kit/kinds/<kind>/rules.md` and `dials.json`. Then tell the
+  motion: read `node_modules/motion-kit/kinds/<kind>/rules.md`, `dial-set.json` and `dials.json`. Then tell the
   person you are building for that no reference example covers this moment.
 
 ## 5. Use the numbers, not literals

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="motion-kit-kind" content="choreo">
+<title>choreo: a cubic-bezier(1,0,0,1) ease beside a gentle one</title>
+<style>html{background:#fff} body{margin:0} .box{position:fixed;left:200px;width:60px;height:40px;background:#333}</style>
+</head><body><script src="lib.js"></script>
+<script>
+const MOTION = { durS: 0.6 }; window.MODE = "choreo"; window.DUR_S = MOTION.durS;
+window.TRACKS=[{name:"x",unit:"px",f:tw(0,300,400,bez(1,0,0,1))},{name:"y",unit:"px",f:tw(0,100,400,bez(0.25,0.1,0.25,1),120)}];
+</script>
+<script src="h.js"></script>
+</body></html>

@@ -1,7 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { closeBrowser } from "../../src/gate/harness.ts";
+import { drawnRead } from "../../src/gate/drawn.ts";
+import { closeBrowser, openPage } from "../../src/gate/harness.ts";
 import { kindGate, type KindVerdict } from "../../src/gate/kind-gate.ts";
+import { CUT_MS, cutPage, writeCutPage, type CutFault, type CutShape } from "./cut-pages.ts";
+import "./sweep-priority.ts";
+import { bodyPage, ringPage, type Body, type Ring } from "./extent-pages.ts";
 
 /**
  * Pages built from the rules alone, each with the verdict the rules give it (honest pages pass, faulty ones fail the
@@ -93,7 +99,8 @@ const FAULTY: [string, string[]][] = [
   ["af05e-forged-holds-2L", ["envelope"]],
   ["af07a-pop-at-load", ["envelope"]],
   ["af05b-jump-no-holds", ["envelope"]],
-  ["af07d-pop-at-load-nobar", ["envelope"]],
+  // The same pop with no stepped drawings is also a jump between two frames, so the sub-step read fails it too.
+  ["af07d-pop-at-load-nobar", ["envelope", "suddenJumps"]],
   ["af07b-pop-after-rest", ["envelope"]],
   // Box lies. cf30e: a 40 px dot reported as an 80 px box, default halo. cf30, cf30d, cf30c: inflated boxes that
   // claim a halo with nothing drawn in it (64 px with 16, 80 px with 16, 120 px with 40). The twins: 2.4 times, a box
@@ -217,5 +224,231 @@ describe.concurrent("the object record's fix pages", () => {
   it.fails.each(gaps)("%s/%s: %s (a known gap)", check);
   it("every known gap names a page", () => {
     expect([...REVIEW3_GAPS].filter((n) => !rows.some(([, m]) => m === n))).toEqual([]);
+  });
+});
+
+/**
+ * Small cuts (drawn.ts): a designed one-frame change that is not a scene change, declared in trace.json as a cut. A
+ * part that snaps into a slot, a light that flips colour and a panel that appears each change 1% to 10% of the view,
+ * at two viewport sizes. Honest, the changed pixels all lie inside the objects the page reports, and the cut passes.
+ * Lies: a square no object reports beside the change, a record that leaves the changing thing out, and a cut on a
+ * frame where nothing changes. A scene-size cut passes as before.
+ */
+describe.concurrent("small cuts: a declared cut may change a small part of the view inside the objects", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "motion-kit-cuts-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  const SIZES = [{ width: 1280, height: 720 }, { width: 800, height: 600 }];
+  const SHAPES: CutShape[] = ["snap", "light", "panel"];
+  const SHARES = [0.01, 0.03, 0.1];
+  const lines = async (shape: CutShape, share: number, fault: CutFault, size: { width: number; height: number }, quiet = false) => {
+    const file = writeCutPage(root, `${shape}-${share}-${fault}-${size.width}${quiet ? "-quiet" : ""}`, cutPage(shape, share, fault, quiet));
+    const p = await openPage(file, { viewport: size });
+    try {
+      return (await drawnRead(p, { kind: "idle", spanMs: 2000, cuts: [CUT_MS], stepped: [] })).lines;
+    } finally {
+      await p.close();
+    }
+  };
+  const rows = SHAPES.flatMap((shape) => SHARES.flatMap((share) => SIZES.map((size): [CutShape, number, { width: number; height: number }] => [shape, share, size])));
+
+  it.each(rows)("%s at %d of the view, %j: passes", async (shape, share, size) => {
+    expect(await lines(shape, share, "honest", size)).toEqual([]);
+  });
+
+  // The record that leaves the changing thing out prints the share the cut changes, which is the share asked for.
+  it.each(rows)("%s at %d of the view, %j: the change is that share, and with no object over it the cut fails", async (shape, share, size) => {
+    const out = await lines(shape, share, "unowned", size);
+    expect(out).toHaveLength(1);
+    const [, pct, px] = out[0]!.match(/^drawn: the cut at 1000 ms changes ([\d.]+)% of the view, (\d+) px of it outside every object; a cut that is not a scene change changes only what the objects cover$/) ?? [];
+    expect(pct).toBeDefined();
+    expect(Number(pct)).toBeGreaterThan(100 * share * 0.75);
+    expect(Number(pct)).toBeLessThan(100 * share * 1.25);
+    expect(Number(px)).toBeGreaterThan(0);
+  });
+
+  it.each(SHAPES.flatMap((shape) => SIZES.map((size): [CutShape, { width: number; height: number }] => [shape, size])))("%s, %j: a square no object reports beside the honest change fails the cut", async (shape, size) => {
+    const out = await lines(shape, 0.03, "glitch", size);
+    expect(out).toEqual([expect.stringMatching(/^drawn: the cut at 1000 ms changes [\d.]+% of the view, \d+ px of it outside every object; a cut that is not a scene change changes only what the objects cover$/)]);
+  });
+
+  it.each(SHAPES)("%s: a cut declared on a frame where nothing changes fails", async (shape) => {
+    expect(await lines(shape, 0.03, "none", SIZES[0]!)).toEqual(["drawn: the cut at 1000 ms changes 0% of the view; a cut is a scene change"]);
+  });
+
+  // A quiet page: the cut is the only change the page has, so there is no "most any other pair changes" to compare
+  // it to. It is a small cut, judged against the objects, at every share and size.
+  const STRAY = /^drawn: the cut at 1000 ms changes [\d.]+% of the view, \d+ px of it outside every object; a cut that is not a scene change changes only what the objects cover$/;
+  it.each(rows)("quiet page, %s at %d of the view, %j: passes", async (shape, share, size) => {
+    expect(await lines(shape, share, "honest", size, true)).toEqual([]);
+  });
+  it.each(rows)("quiet page, %s at %d of the view, %j: with no object over the change the cut fails", async (shape, share, size) => {
+    expect(await lines(shape, share, "unowned", size, true)).toEqual([expect.stringMatching(STRAY)]);
+  });
+  it.each(rows)("quiet page, %s at %d of the view, %j: a square no object reports fails the cut", async (shape, share, size) => {
+    expect(await lines(shape, share, "glitch", size, true)).toEqual([expect.stringMatching(STRAY)]);
+  });
+  it.each(SHAPES)("quiet page, %s: a cut declared on a frame where nothing changes fails", async (shape) => {
+    expect(await lines(shape, 0.03, "none", SIZES[0]!, true)).toEqual(["drawn: the cut at 1000 ms changes 0% of the view; a cut is a scene change"]);
+  });
+
+  // A known gap, pinned: a page that reports no objects is not read, so a small cut on it passes whatever it changes.
+  // Reading it turns red the tracked bars that declare cuts and report no objects, until they report objects. The
+  // case runs as `it.fails` with the verdict it must get; a fix turns it red and takes it off the list.
+  it.fails.each(SHAPES)("%s: a small cut on a page that reports no objects fails (a known gap)", async (shape) => {
+    expect(await lines(shape, 0.03, "noobjects", SIZES[0]!)).toEqual([expect.stringMatching(/^drawn: the cut at 1000 ms /)]);
+  });
+
+  it("a scene-size cut passes as before, whatever the objects cover", async () => {
+    expect(await lines("panel", 0.6, "honest", SIZES[0]!)).toEqual([]);
+    expect(await lines("panel", 0.6, "unowned", SIZES[0]!)).toEqual([]);
+    expect(await lines("panel", 0.6, "unowned", SIZES[0]!, true)).toEqual([]);
+  });
+});
+
+/**
+ * A value that is an edge of many moving parts: the box around a ring of 24 cards that spins and tips out (extent-pages.ts),
+ * reported as `top` and `height` and declared in trace.json `extents`. Spin lengths of 1500 to 5000 ms and tip-outs of 5 to
+ * 20 deg. The box turns by up to 3.5 px as another card becomes the extreme one: undeclared, it fails `overshoot` (and
+ * `envelope`'s pulse attack at the longer spins); declared, it passes every rule, at every point of the grid. Each fault
+ * runs at the four spin lengths with the smallest and the largest tip-out. The cards may fade in one after another: the box
+ * jumps as each comes back, which is no pop. Beside the ring, a value that is no extent is still judged in full: a value summed from 22 of the 24 cards fails the guard, a 600 px slide that springs
+ * 3% past its rest fails `overshoot`, and a 4 px badge pulse with a 200 ms attack fails `envelope`.
+ */
+describe.concurrent("declared extents: a ring of 24 cards", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "motion-kit-extents-sweep-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  // The honest page runs at every point of the grid; each fault at the grid's four spin lengths and two ends of the tip-outs.
+  const grid = (tips: number[]) => [1500, 2500, 3500, 5000].flatMap((spinMs) => tips.map((tipDeg): [number, number] => [spinMs, tipDeg]));
+  const points = grid([5, 10, 15, 20]);
+  const ends = grid([5, 20]);
+  const run = (spinMs: number, tipDeg: number, more: Ring = {}) => kindGate(ringPage(root, { spinMs, tipDeg, ...more }));
+
+  it.each(points)("spin %d ms, tip-out %d deg, declared: passes every rule", async (spinMs, tipDeg) => {
+    expect((await run(spinMs, tipDeg)).failures).toEqual([]);
+  });
+
+  // The spin may end with a card a few deg past the top of the ring (spinDeg 108, the default, ends 4.5 deg short of it). Past the
+  // top the card's own top comes back by R (1 - cos(angle)) while it still holds the edge: 0.77 px at 4.5 deg and 2.1 px at 7.5.
+  // The top is held in turn by the cards that go through it (8 or so), so no card's turn is read there.
+  it.each([
+    [1500, 112],
+    [1500, 116],
+    [1500, 117],
+    [1500, 118],
+    [1500, 120],
+    [2500, 118],
+    [2500, 120],
+    [1500, 125],
+    [3500, 120],
+    [5000, 120],
+  ])("spin %d ms, a spin of %d deg that ends a card past the top of the ring: passes every rule", async (spinMs, spinDeg) => {
+    expect((await run(spinMs, 15, { spinDeg })).failures).toEqual([]);
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, undeclared: fails overshoot", async (spinMs, tipDeg) => {
+    expect(failing(await run(spinMs, tipDeg, { extents: "none" }))).toContain("overshoot");
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, a value summed from 22 of the 24 cards: fails the guard", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { report: "fewer" });
+    expect(v.failures).toContainEqual(expect.stringMatching(/^extents: top is not the top of its parts at [\d.]+ ms$/));
+  });
+
+  // Cards that fade in one after another, scattered round the ring: the box around the drawn ones jumps as each comes back,
+  // which is no pop. A card that jumps once they are all in is.
+  it.each(ends)("spin %d ms, tip-out %d deg, cards fading in one after another: passes every rule", async (spinMs, tipDeg) => {
+    expect((await run(spinMs, tipDeg, { fade: true })).failures).toEqual([]);
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, cards fading in from a box at the bottom of the viewport: passes every rule", async (spinMs, tipDeg) => {
+    expect((await run(spinMs, tipDeg, { fade: true, idle: "bottom" })).failures).toEqual([]);
+  });
+
+  // (At 1500 ms the jumping card also turns round and the guard fails, so the value is judged in full and its first jump is the
+  // arrival at 100 ms: the three longer spins show the jump in the step itself.)
+  it.each(ends.filter(([spinMs]) => spinMs >= 2500))("spin %d ms, tip-out %d deg, a card that jumps 100 px up in the step in which another comes back, the box starting at the bottom of the viewport: fails suddenJumps at that step", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { fade: true, idle: "bottom", popAtArrival: true });
+    expect(v.failures).toContainEqual(expect.stringMatching(/^suddenJumps: top moves -?[\d.]+ in the frame after 983\.333 ms, and -?[\d.]+ in its first half; no cut marks it$/));
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, cards fading in and one that jumps 100 px up after: fails envelope on a pop", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { fade: true, pop: true });
+    expect(v.failures).toContainEqual(expect.stringMatching(/^envelope: top at [\d.]+ ms covers \d+% of its whole change in the one frame after [\d.]+ ms; that is a pop$/));
+  });
+
+  // The very step in which another card comes back: the card that jumps in it is judged against the cards drawn in both frames.
+  // (Over the 5000 ms spin the jump is a smaller share of top's whole change, so it fails as a sudden jump in that step instead.)
+  it.each(ends)("spin %d ms, tip-out %d deg, a card that jumps 100 px up in the step in which another comes back: fails on a pop or a jump in that step", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { fade: true, popAtArrival: true });
+    expect(v.failures).toContainEqual(expect.stringMatching(/^(envelope: top at [\d.]+ ms covers \d+% of its whole change in the one frame after [\d.]+ ms; that is a pop|suddenJumps: top moves -?[\d.]+ in the frame after 983\.333 ms, and -?[\d.]+ in its first half; no cut marks it)$/));
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, with a 3% spring on a 600 px slide beside it: fails overshoot on the slide alone", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { extra: "slide" });
+    expect(v.failures).toEqual([expect.stringMatching(/^overshoot: slide passes its rest by [\d.]+ at [\d.]+ ms and comes back; /)]);
+  });
+
+  it.each(ends)("spin %d ms, tip-out %d deg, with a 4 px badge pulse of 200 ms attack beside it: fails envelope on the badge alone", async (spinMs, tipDeg) => {
+    const v = await run(spinMs, tipDeg, { extra: "badge" });
+    expect(v.failures).toEqual([expect.stringMatching(/^envelope: badge at [\d.]+ ms is a pulse that peaks 1\d\d ms after it starts; a pulse's attack is 40 to 120 ms$/)]);
+  });
+});
+
+/**
+ * A single body named as an extent beside a drawn decoy. A body that slides and springs past its rest by 3 to 20% (150 or 600 px),
+ * or pulses 4 px with an attack of 160 to 300 ms, is named as the left edge of itself and a decoy. A decoy that never holds
+ * the edge (`static`) leaves it in one part's hands: no extent. A decoy that holds it for the first frames and then runs past (`crosses`)
+ * leaves the body alone with it, and the body turns round: no extent. Either way the value is judged in full, so the spring fails
+ * `overshoot` and the slow pulse fails `envelope`, on the value alone.
+ */
+describe.concurrent("an edge held by one body beside a decoy is no extent", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "motion-kit-decoy-sweep-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  const LEFT = { x: { edge: "left", parts: ["dot", "decoy"] } };
+  const run = (body: Body) => kindGate(bodyPage(root, LEFT, body));
+  const extentLines = (v: KindVerdict) => v.failures.filter((f) => f.startsWith("extents:"));
+  const springs = [150, 600].flatMap((travel) => [0.03, 0.2].map((over): [number, number] => [travel, over]));
+
+  it.each(springs)("%d px slide, %d past its rest, beside a decoy that never holds the edge: fails the guard and overshoot", async (travel, over) => {
+    const v = await run({ decoy: "static", travel, over });
+    expect(extentLines(v)).toEqual([expect.stringMatching(/^extents: x is held by dot throughout; /)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^overshoot: x passes its rest by [\d.]+ at [\d.]+ ms and comes back; /));
+  });
+
+  it.each(springs)("%d px slide, %d past its rest, beside a decoy that holds the edge first and runs past: fails the guard and overshoot", async (travel, over) => {
+    const v = await run({ decoy: "crosses", travel, over });
+    expect(extentLines(v)).toEqual([expect.stringMatching(/^extents: x has dot turn round at [\d.]+ ms while it holds the edge and then comes to rest; /)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^overshoot: x passes its rest by [\d.]+ at [\d.]+ ms and comes back; /));
+  });
+
+  // Down 0 to 8 px a frame while it slides: the whole box never turns back, though the left edge does.
+  const drifts = [150, 600].flatMap((travel) => [0, 3, 6, 8].map((drift): [number, number] => [travel, drift]));
+  it.each(drifts)("%d px slide springing 10% past its rest while it drifts %d px a frame across the edge, beside a decoy that holds the edge first and runs past: fails the guard and overshoot", async (travel, drift) => {
+    const v = await run({ decoy: "crosses", travel, drift });
+    expect(extentLines(v)).toEqual([expect.stringMatching(/^extents: x has dot turn round at [\d.]+ ms while it holds the edge and then comes to rest; /)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^overshoot: x passes its rest by [\d.]+ at [\d.]+ ms and comes back; /));
+  });
+
+  // A decoy that holds the edge with the body (the first listed wins a tie), runs past it and goes gone at 400 ms: the edge changes
+  // hands, but the two are drawn together in only a small share of the frames, so they are no group. A slow pulse is no turn
+  // that the other conditions read, so only the group condition fails it.
+  const TIE = { x: { edge: "left", parts: ["decoy", "dot"] } };
+  const briefLines = (v: KindVerdict) => v.failures.filter((f) => f.startsWith("extents:"));
+  it.each([200, 250, 300])("a 4 px pulse with a %d ms attack beside a decoy that is drawn with it for only a short while: fails the group and envelope", async (attackMs) => {
+    const v = await kindGate(bodyPage(root, TIE, { decoy: "brief", move: "pulse", attackMs, startMs: 500 }));
+    expect(briefLines(v)).toEqual([expect.stringMatching(/^extents: x has 2 parts drawn in \d+ of \d+ frames where any is; an extent is the edge of parts drawn together$/)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^envelope: x at 500 ms is a pulse that peaks \d+ ms after it starts; a pulse's attack is 40 to 120 ms$/));
+  });
+
+  it.each(springs)("%d px slide, %d past its rest, beside a decoy that is drawn with it for only a short while: fails the group and overshoot", async (travel, over) => {
+    const v = await kindGate(bodyPage(root, TIE, { decoy: "brief", travel, over }));
+    expect(briefLines(v)).toEqual([expect.stringMatching(/^extents: x has 2 parts drawn in \d+ of \d+ frames where any is; /)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^overshoot: x passes its rest by [\d.]+ at [\d.]+ ms and comes back; /));
+  });
+
+  it.each([160, 200, 300])("a 4 px pulse with a %d ms attack beside a decoy that never holds the edge: fails the guard and envelope", async (attackMs) => {
+    const v = await run({ decoy: "static", move: "pulse", attackMs });
+    expect(extentLines(v)).toEqual([expect.stringMatching(/^extents: x is held by dot throughout; /)]);
+    expect(v.failures).toContainEqual(expect.stringMatching(/^envelope: x at [\d.]+ ms is a pulse that peaks \d+ ms after it starts; a pulse's attack is 40 to 120 ms$/));
   });
 });

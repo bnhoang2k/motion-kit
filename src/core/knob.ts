@@ -42,8 +42,9 @@ function fmt(v: number): string {
   return Math.abs(v) >= 1 || Math.abs(short) >= 1 ? v.toFixed(1) : String(short);
 }
 
-function line(label: string, v: number, base: number, unit: string, bar: string): string {
-  const ref = `(${bar}: ${fmt(base)}${unit})`;
+/** `bar` is null when the bar that set the base has no folder under bars/. */
+function line(label: string, v: number, base: number, unit: string, bar: string | null): string {
+  const ref = bar === null ? `${fmt(base)}${unit}` : `(${bar}: ${fmt(base)}${unit})`;
   const here = `${label} ${fmt(v)}${unit}`;
   if (Math.abs(v - base) <= 1e-9 * Math.max(Math.abs(v), Math.abs(base))) return `${here}, at base ${ref}`;
   const dir = v > base ? "above" : "below";

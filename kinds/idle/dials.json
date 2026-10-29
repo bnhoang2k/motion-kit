@@ -3,7 +3,7 @@
     "knob": "idle.period",
     "value": 4.0,
     "unit": "s",
-    "bar": "31-breath-pacer",
+    "bar": null,
     "path": "reso.loopS",
     "row": "Resonance",
     "base": true

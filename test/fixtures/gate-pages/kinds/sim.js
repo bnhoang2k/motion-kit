@@ -7,7 +7,16 @@
 // window.FAULT plants one fault: "bounce-rises" (each bounce leaves faster than it landed), "mid-kick" (one frame of extra push halfway down the first fall), "restart" (ball A
 // hops again 500 ms after it rests), "slow-damping" (bounces lose too little to rest within 4 s),
 // "no-body" (only a fade moves), "loop-no-pause" (the ring keeps running while hidden) or
-// "glow-pop" (the fade value drops from 1 to 0 in one frame, 1 s after the tap).
+// "glow-pop" (the fade value drops from 1 to 0 in one frame, 1 s after the tap) or "no-cap" (the live loop takes
+// the whole time step, so a long frame gap throws the motion). window.VARIANT "tap-loop" runs no live loop until the
+// tap lifts, and then only while something moves: the first live frame comes after the input has ended. It has no
+// ring, since a page with no loop of its own has no idle rules to meet.
+// A page with a tile (#t) reports a value t: a control that acts out the tap with a keyframe tween beside the bodies,
+// 0, -a, +a, 0 px over tweenMs (or a shake, tweenFirst +1), its turns at a quarter and three quarters of the time
+// (tweenLegs "quarters") or at a third and two thirds (evenly spaced keyframes, "thirds"), each leg on the curve
+// tweenEase: "ease", "ease-in-out" or "linear", as CSS keyframes ease each segment. Under reduced motion it does
+// nothing. FAULT "tween-pop" plants one frame that carries two thirds of its swing, "tween-snap" holds its far turn and snaps home at the end (half its swing), "tween-away" ends it a away from
+// where it started, "tween-grows" swings its second turn twice as far as its first, and "tween-throw" throws it: it ends 200 px away, as a body that lands elsewhere.
 const FAULT = window.FAULT || "";
 const VARIANT = window.VARIANT || "";
 const MOTION = {
@@ -26,11 +35,48 @@ const MOTION = {
   glowAtS: 1,       // the glow-pop fault's drop
   ringPeriodS: 1.2, // the ring's pulse
   loadAtS: 0.1,     // the "load" variant starts this long after load
-  maxStepS: 0.05,   // the live loop caps one time step
+  maxStepS: FAULT === "no-cap" ? Infinity : 0.05, // the live loop caps one time step
+  tweenPx: 3,       // a: how far the tile's first leg goes
+  tweenMs: 350,     // the whole tween
+  tweenEase: "ease", // each leg's curve
+  tweenFirst: -1,   // -1: the first leg goes up the screen, +1: down
+  tweenLegs: "quarters", // where the turns sit
 };
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const seekMode = new URLSearchParams(location.search).has("seek");
-const [elA, elB, elRing, elFade] = ["a", "b", "ring", "fade"].map((id) => document.getElementById(id));
+const [elA, elB, elRing, elFade, elT] = ["a", "b", "ring", "fade", "t"].map((id) => document.getElementById(id));
+// The CSS cubic-bezier easing for control points (x1, y1) (x2, y2).
+function bezier(x1, y1, x2, y2) {
+  const at = (a, b, s) => 3 * a * (1 - s) ** 2 * s + 3 * b * (1 - s) * s ** 2 + s ** 3;
+  return (p) => {
+    if (p <= 0) return 0;
+    if (p >= 1) return 1;
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (at(x1, x2, mid) < p) lo = mid; else hi = mid; }
+    return at(y1, y2, (lo + hi) / 2);
+  };
+}
+// The CSS names, as keys: "ease-in-out" is read as easeInOut (the audit keeps an easing's name out of the page's code).
+const CURVES = { ease: bezier(0.25, 0.1, 0.25, 1), easeInOut: bezier(0.42, 0, 0.58, 1), linear: (p) => p };
+const tweenEase = CURVES[MOTION.tweenEase.replace(/-(\w)/g, (_, c) => c.toUpperCase())];
+// The tile's value d seconds after the tap lands, with the planted fault (or none).
+function tweenAt(d) {
+  const dur = MOTION.tweenMs / 1000;
+  const a = MOTION.tweenPx * MOTION.tweenFirst;
+  const home = FAULT === "tween-throw" ? 200 : FAULT === "tween-away" ? -a : 0;
+  const lo = FAULT === "tween-grows" ? -2 * a : -a;
+  if (d <= 0) return 0;
+  if (d >= dur) return home;
+  const [t1, t2] = MOTION.tweenLegs === "thirds" ? [1 / 3, 2 / 3] : [0.25, 0.75];
+  const u = d / dur;
+  if (u < t1) return a * tweenEase(u / t1);
+  if (FAULT === "tween-snap" && u >= t2) return lo;
+  if (u >= t2) return home === 0 ? lo * (1 - tweenEase((u - t2) / (1 - t2))) : -a + (a + home) * tweenEase((u - t2) / (1 - t2));
+  const p = (u - t1) / (t2 - t1);
+  const q = FAULT === "tween-pop" ? (p < 0.5 ? 0.15 * tweenEase(2 * p) : 0.82 + 0.18 * tweenEase(2 * p - 1)) : tweenEase(p);
+  return a + (lo - a) * q;
+}
+const tile = () => (!elT || reduced || !S.launched ? 0 : tweenAt(S.t - S.startedAt));
 // The live run counts presses, so a tap pressed and lifted inside one frame still lands.
 const hand = { presses: 0 };
 let S;
@@ -97,8 +143,8 @@ function step(h) {
   }
   S.t = end;
 }
-const ring = (t) => (reduced ? 1 : 1 + 0.1 * Math.sin((2 * Math.PI * t) / MOTION.ringPeriodS));
-const values = () => ({ a: S.a.h, b: S.bx, ring: ring(S.t), fade: S.fade });
+const ring = (t) => (reduced || VARIANT === "tap-loop" ? 1 : 1 + 0.1 * Math.sin((2 * Math.PI * t) / MOTION.ringPeriodS));
+const values = () => ({ a: S.a.h, b: S.bx, ring: ring(S.t), fade: S.fade, ...(elT ? { t: tile() } : {}) });
 const busy = () => S.a.flying || S.rolling || (FAULT === "glow-pop" && S.fade > 0) || (S.fadeAt !== null && S.fade > 0) || (FAULT === "restart" && S.a.restAt !== null && !S.a.hopped);
 function draw() {
   const v = values();
@@ -108,6 +154,7 @@ function draw() {
   elB.style.display = v.b >= MOTION.edgePx ? "none" : "";
   elRing.style.transform = `scale(${v.ring})`;
   elFade.style.opacity = String(v.fade);
+  if (elT) elT.style.transform = `translateY(${v.t}px)`;
 }
 window.__seek = (ms) => {
   reset();
@@ -117,7 +164,7 @@ window.__seek = (ms) => {
   if (rest > 1e-9) step(rest);
   draw();
 };
-const units = FAULT === "no-body" ? { ring: "scale", fade: "opacity" } : { a: "px", b: "px", ring: "scale", fade: "opacity" };
+const units = { ...(FAULT === "no-body" ? { ring: "scale", fade: "opacity" } : { a: "px", b: "px", ring: "scale", fade: "opacity" }), ...(elT ? { t: "px" } : {}) };
 window.__state = () => {
   const v = values();
   if (FAULT === "no-body") { delete v.a; delete v.b; }
@@ -132,14 +179,16 @@ if (!seekMode) {
     last = now;
     step(h);
     draw();
-    raf = !reduced || busy() || !S.launched ? requestAnimationFrame(frame) : 0;
+    raf = (VARIANT === "tap-loop" ? busy() || !S.launched : !reduced || busy() || !S.launched) ? requestAnimationFrame(frame) : 0;
     if (!raf) last = null;
   };
   const wake = () => { if (!raf) raf = requestAnimationFrame(frame); };
-  addEventListener("pointerdown", () => { hand.presses++; wake(); });
+  // "tap-loop" counts the press and starts its loop at the lift; its page has no loop before that.
+  const tapLoop = VARIANT === "tap-loop";
+  addEventListener(tapLoop ? "pointerup" : "pointerdown", () => { hand.presses++; wake(); });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) { if (FAULT !== "loop-no-pause") { cancelAnimationFrame(raf); raf = 0; last = null; } }
-    else wake();
+    else if (!tapLoop || S.started) wake();
   });
-  wake();
+  if (!tapLoop) wake();
 }

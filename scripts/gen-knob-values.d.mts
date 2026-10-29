@@ -2,7 +2,7 @@ export interface DialEntry {
   knob: string;
   value: number | { visualDuration: number; bounce: number };
   unit: string;
-  bar: string;
+  bar: string | null;
   path: string | string[];
   row: string;
   base?: boolean;

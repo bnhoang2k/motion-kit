@@ -48,23 +48,78 @@ The page caps one time step, so a long frame gap cannot throw its motion.
   rest, up to 1 s past them.
 - A pop is one 1/60 s frame that covers more than half of a start's whole change: the farthest
   the value goes, either way, before it rests (so a small anticipation dip before a move is not the
-  move). Setting a value in one frame is a pop. A steady linear move is not.
+  move). Setting a value in one frame is a pop. A steady linear move is not. A move that comes back to
+  where it started and holds there, as a shake or a bob, has no pop test here: a frame of it is a share
+  of a swing that goes both ways, so `suddenJumps` reads its motion between frames instead. A chain of
+  moves with holds of under 100 ms between them that comes back as a whole (a tada, a bounce that
+  pauses at its top) is read the same way. A chain whose every leg lasts 2 frames or less (about
+  33 ms: a flick out and back) is no swing, and its frames are judged as any move's: a smooth leg that
+  short is no cusp, so only the frame it lands in tells it from a snap.
 - A start whose whole change is below its unit's floor (0.5 px, 0.5 deg, 0.01 ratio, 0.01 opacity,
   0.002 scale, 0.017 s) is too small to see, so it is not judged: a spring or a smoothed scroll may
   snap to rest at the end of a still stretch.
 - A pulse rises from rest to a peak within 500 ms, then comes back at least halfway toward where it
   started: a flash, a highlight, a badge pulse. Its attack, from its start to its peak, is 40 to
-  120 ms. Ordinary moves, tweens, springs and loops have no attack bound, and neither has a pulse
-  inside a choreo or sim page's caused sequence (a shake or a toss is no flash). There anything that
+  120 ms. Ordinary moves, tweens, springs, loops and checked extents (see Extents) have no attack
+  bound, and neither has a pulse inside a choreo or sim page's caused sequence (a shake or a toss is
+  no flash). There anything that
   comes back at least halfway is a pulse however slowly it peaks, so a dip through black is no fade
-  that rises again. A value is a loop when it
-  starts the same way 3 or more times at a fixed period (within 1 frame); the gate looks 15 s
-  ahead for those repeats. A value is a designed loop too when its whole series repeats at one
-  period of 0.5 to 7.5 s, after a lead-in of at most 2 s, within its unit's floor: the gate reads
-  17 s and checks each frame against the exact time one period later, so a period off the frame
-  grid counts. A ticking hand counts as well: each period it moves on by the same step. When the
-  shortest repeat the gate finds does not hold (two equal hops with different settles), it tries
-  that repeat's multiples up to 7.5 s. A loop is still checked for pops.
+  that rises again. One sort finds the loops, and every rule reads it. A value is a loop when it
+  starts the same way 3 or more times at a fixed period of 0.5 s or more (within 1 frame), the last
+  start within one period, plus a frame, of the last frame read, and it keeps its range each period:
+  every period's swing is as large as the first, and, but for a value in `deg` (a hand that ticks
+  round), it starts and tops out at the same levels (within the unit's floor, plus what a crest
+  known only to a frame can be off: half the bend of the frames at it). A step each period in `px`,
+  `scale` or `opacity` (a staircase), or a swing that grows each beat, is no loop, however small:
+  every period is held to the first, so a drift that adds up over the read fails. The gate looks 15 s ahead for those repeats (on a
+  choreo or sim page, 15 s past the last cause's stop, the same read that finds the sequence's end).
+  A piece that steps or breathes a few times and then holds stops before the end, so it is no loop.
+  A value is a loop too when it moves at one steady speed over the
+  last 500 ms of the frames read (a marquee, a strip that drifts), whatever it did before: a hand held
+  it, or it eased in or back to its drift. Every frame step in those 500 ms is within the larger of the
+  still threshold of those 500 ms' own range and 1% of the median step, of that median, and the median
+  step is above the still threshold of the value's range. A drift that slows (even with a long time
+  constant), a speed that wobbles by 5% or more, or one that has stopped is no loop. With a first
+  cause (a tap on a choreo or sim page, the first input sample on a live or scroll page) the value must
+  move the same with no input: the gate reads the page once more with none, and the value must end at the
+  same steady speed, the same way, there, and hold it from the end of its lead-in in that read. A drift that starts a little after load or eases in stays a loop;
+  a value that starts at a cause and never stops (a tween with no clamp, a body with no friction, a fling
+  clamped to a minimum speed) is no loop, and fails the span and rest rules, whatever else the page did
+  before the cause (a breath), and whichever way the breath was going. With no cause (an idle page, or a page that starts on load) the value must hold
+  that speed from the end of its lead-in, 2 s after it first moves, to the end of the frames read: a
+  ramp up to the speed is that lead-in, a breath that turns into a creep later is not. A value is a designed loop too when its whole series repeats at one
+  period of 0.5 to 7.5 s, after a lead-in of at most 2 s counted from when it first moves (a loop a
+  tap starts has the lead-in a loop at load has), within its unit's floor: the gate reads 17 s from
+  that move and checks each frame against the exact time one period later, so a period off the frame
+  grid counts, and a crest between two frames is no harder to find than one on a frame. A step each
+  period (a ticking hand) counts only for a value in `deg`. In any other unit a step each period, or a
+  swing that grows or shrinks each period, counts only while what it adds up to over the read stays
+  within the unit's floor: a bob that sinks 0.5 px a cycle is no loop. When the shortest repeat the gate finds
+  does not hold (two equal hops with different settles), it tries that repeat's multiples up to
+  7.5 s. A value whose own cycle is shorter than 250 ms (a flip-flop every frame, a buzz of 4 frames
+  a cycle) repeats at 500 ms too, as every multiple of its cycle does, but it is a buzz, no loop: it
+  must come to rest. A loop is still checked for pops.
+- Known limits of the loop sort. A cycle shorter than 500 ms is no loop, so a designed shimmer or vibration
+  of 155 to 180 ms is a buzz that must come to rest. A lead-in longer than 2 s is no loop: a slow
+  exponential slide with a 3.1 s bob on one value, a spring that settles over 2.55 s before a 2 s breath,
+  and a bouncy spring still 0.033 off at 2 s before a 1.6 s breath all fail. Smooth motion with no one
+  period of 0.5 to 7.5 s is no loop: two unrelated sines (6 px at 1.3 s plus 4 px at 2.1 s repeat only every
+  27.3 s), and a breath of 8, 9 or 10 s, must come to rest. A bounce that loses no energy repeats at a fixed
+  period with equal peaks, so it is a loop, and the gate cannot tell it from a designed bob. A creep of 12
+  px a second from load that never stops is a loop too, as a marquee is, because the sort cannot know the
+  page's intent. A value in `deg` whose rest angle walks 3 deg each cycle counts as a ticking hand. A loop
+  that stops dead mid-swing and holds (a 40 px bob that halts at its fastest, 168 px a second, after 4
+  cycles) passes, because no rule tests a sudden stop. The read ends 17 s from the first move, so a bob that
+  freezes at 17.5 s, or a breath that snaps off at 20 s, is not seen to end. On an idle page a value that is
+  no loop is not asked to rest, so a float of two sines, a 10 s float, a bob that sinks a little each cycle,
+  and a spring that never settles (damping ratio 0.01, still 5 px wide after 10 s) pass there.
+- Known limit: a value that wraps or steps on purpose reads as a pop on a page that cannot declare it, and
+  fails the envelope and `suddenJumps`. A bar names its stepped values in `stepped`; any other page has no
+  way to. The wrap of a CSS marquee (translateX from 0 to -50%: 299.167 px in the frame after 6000 ms, or a
+  400 px tile at 80 px a second that wraps every 5 s), a skeleton shimmer whose 600 px reset happens off its
+  box, a spinner on `steps(12)` (30 deg every 83 ms), a quartz second hand that jumps 6 deg once a second, a
+  blinking caret, and the opacity restart of Tailwind's `animate-ping` all fail. The same marquee reported
+  as an unwrapped offset passes.
 - A value whose `units` entry is `opacity`, and that starts to fall without coming back as a pulse,
   is a fade. It must not rise again before it rests. An opacity value in a designed loop (a shimmer)
   is a loop, not a fade.
@@ -78,6 +133,127 @@ The page caps one time step, so a long frame gap cannot throw its motion.
 first frame that holds it on (a value of its own, not one every object has, such as `constructor`).
 An idle page is read for 17 s here. A value that is NaN or Infinity, or left out, for one frame hides
 what it does there from the other rules, while the screen drops that frame and the value jumps.
+
+**Sudden jumps (`suddenJumps`).** No value moves in one frame step what it should spread over the
+step. It is Gate A's sudden-jumps check, run on every page.
+
+- The gate examines each 1/60 s step in which a value moves at least 5% of its range, or more than
+  2.5 times the larger frame step beside it, so a snap in a long move is found too. A step of at most
+  the value's unit floor (0.5 px, 0.5 deg, 0.01 ratio, 0.01 opacity, 0.002 scale, 0.017 s) is too small
+  to see and is not examined, and a value whose whole range is within its unit floor is still. A value
+  with no unit is still only when its range is rounding noise.
+- Each examined step is seeked again at eight even sub-steps, with the eight before it and the eight
+  after it. The step fails when a span of 1, 2 or 4 sub-steps moves more than 2.5 times the larger of
+  the two spans of the same width beside it, and carries at least a third of the step's change. An
+  ease, a spring or a speed corner changes gradually and passes. A hold, a jump and a hold fails at
+  every offset inside the frame. A shake that puts 51% to 69% of a leg in one frame passes, since the
+  leg is smooth between its frames.
+- A cusp is no jump, however much it stands out. circInOut (Motion, GSAP, Penner) has a square-root
+  cusp at its midpoint, and cubic-bezier(1,0,0,1), a plain CSS ease, has a cube-root cusp: the speed
+  has no bound and the value does not jump. Their sub-steps stand out from their neighbours by 2.6 to
+  2.9 (square root) and 4 to 5 (cube root), and a steeper cusp stands out by more, so no cap on that
+  ratio tells a cusp from a jump. What does is the largest change in a window of the step as the
+  window is cut in half. The step is seeked at 256 even sub-steps, and 32 more past each end of it,
+  and a window that overlaps the step slides over them, 1/8, 1/16 and 1/32 of a frame wide. So a cusp
+  in the last or first tenth of a frame is read whole. A jump keeps its size (0.98 to 1.0 of the one
+  before in a smooth move, 0.86 then 0.92 for the smallest jump examined), and a cusp's shrinks (0.71
+  for a square root, 0.80 for a cube root, 0.84 at the most). The step shrinks as a cusp does when its
+  largest window falls to 0.88 of the one before at both halvings. A tween of a few milliseconds
+  shrinks too (0.5), so a span as wide as the one that stood out, centred on the step's steepest
+  sub-step, is also seeked at 128 even sub-steps. The largest change in 2 of them against the largest
+  in 8 is 0.40 to 0.67 for a cusp, and 0.25 to 0.33 for a tween, whose speed is bounded. At 0.36 or
+  more the speed has no bound.
+- A cusp whose speed has no bound passes where the value leaves a hold or reaches one: an ease-out or
+  an ease-in at a vertical tangent, such as cubic-bezier(0,1,0,1), circOut or circIn. The value is
+  still (within 1/10000 of its range) for a frame up to the cusp and still moving a frame after it,
+  or still for a frame from it and moving a frame before it, read at both ends and the middle. So a
+  flick of 2 to 10 ms, which is back at rest a frame later, is no ease-out and no ease-in. The cusp
+  may sit just past the frame's edge. Such a cusp passes where the value turns too: it runs one way for a frame into the cusp and back for a frame out of it, as out on
+  circIn and back on circOut does (a bounce).
+- Any other step that shrinks as a cusp does passes only as the middle of a steep ease: a true cusp,
+  or the straight middle of cubic-bezier(x1,0,1-x1,1) with x1 from 0.9 to 0.995, which is often far
+  narrower than a frame. That middle is the top of one bell. Each frame step beside it moves the same
+  way, at least 0.02 of the step and at least 1.25 times the step beyond it. The ease's flanks carry
+  0.115 to 0.59 of the step at any range, so a scale of 1 to 1.02 passes, and fall away by 1.30 to
+  2.7. A flick's tails carry at most 0.0063 of its step, a hold beside a flick moves 0, and beside a
+  tween in a steady move the step beyond moves as much (1.0 to 1.07). And a window that slides over
+  the three frames, halved from two frames to 1/16 of a frame, keeps no more of the change at each
+  halving than at the one before, give or take 0.02 (a tween holds its size once the window covers
+  it). So a flick of 2 to 20 ms on an eased curve fails, circInOut and cubic-bezier(1,0,0,1)
+  included: in a hold, as a recoil, or one way inside a steady move.
+  Known limit, measured at 64 start phases a frame: a cubic-bezier(0.98,0,0.02,1) tween retargeted from
+  where it is at u = 0.5 or 0.53 (an interrupted transition) stops dead at its fastest and passes at 0
+  to 50 of 64. Penner's and GSAP's expo.in and expo.out leave or reach rest with a true jump of 2^-10 of
+  the range, and expoInOut with 2^-11: over 5000 px, 600 to 1200 ms, that is 2.4 to 4.9 px, and it fails
+  at every phase. A linear tween of 20 ms is smooth at the sub-steps and passes at every phase, in a
+  hold, inside a move or as a recoil. A flick of 20 ms that leaves or reaches a hold at a vertical
+  tangent (circOut, circIn) lasts more than a frame, is still moving a frame past its cusp and passes
+  as an ease at 46 and 45 of 64 (the same flicks of 2, 5 and 10 ms fail at every phase), and a recoil
+  out on circIn in 10 or 20 ms turns at one and passes as a bounce at 47 or 46. A flick of 40 px at the top of a fast ease-in
+  moves about as much as the ease's own frame steps and is often not examined (19 of 24 such cases pass
+  at 4 to 64 of 64). A snap of 10 to 40 px on a steep in-out ease, planted at u = 0.2 to 0.8 on 15 eases
+  (cubic-bezier(x1,0,1-x1,1) for the ten values of x1 from 0.83 to 1, cubic-bezier(0.9,0,0.4,1),
+  cubic-bezier(1,0,0.5,1), expoInOut, circInOut and quintInOut): at u = 0.5, 30 of 45 cases pass at
+  6 to 64 of 64 (the snap is read as part of the ease), and at the other u 45 of 270 pass at 2 to 64
+  of 64, 43 of them 10 px snaps too small beside the ease's own steps to be examined. A snap where an
+  ease leaves or reaches a hold at a vertical tangent is read as part of the cusp (10 of 12 such cases
+  pass at 54 to 64 of 64). A 10 px snap at the start or end of an ordinary ease is often not examined
+  (3 of 36 such cases, on linear and cubicOut, pass at 16 to 58 of 64). A flick of 120 px in 2 to 20 ms
+  inside a move of 3000 px over 2000 ms (25 px a frame, under 5% of the move) is missed at some phases:
+  linear at 5, 11, 21 and 64 of 64 (2, 5, 10 and 20 ms; a flick that falls across a frame edge puts
+  about half of it in each frame, and neither stands out), circInOut at 2 to 14, and
+  cubic-bezier(1,0,0,1) at 1 to 6. A snap of 20 px in the middle of a move of 1000 px (a cubic in-out
+  over 600 ms, about 42 px a frame there) passes at 64 of 64. In a probe of 1,296 tweens of 2 to 10 ms placed across each ease, the rule misses 163 on
+  cubic-bezier(0.98,0,0.02,1), 361 on (0.9,0,0.1,1), 103 on (1,0,0,1) and 147 on circInOut, most of them
+  on the ease's middle. A swing that crosses home as |s|^0.2, a cusp far steeper than any ease's, tops
+  one bell as an ease does and passes at every phase.
+- Not examined: a step that starts from two frames before a cut to one frame after it. With an
+  input, the one step in which a press lands (a pointer's first sample, or a press after a lift) or a
+  scroll burst starts: the page answers the start with a response that is out of proportion to the
+  input's step (a thumb that jumps to the press, a body that tilts as it is grabbed, a toast that shows
+  on the first scroll tick), and the input has no pace yet to compare it with. A step before or after
+  it is examined. With an input, a step in which the input moves (the pointer's larger move along an axis, the scroll's move)
+  when the value moves at most 2.5 times as far per px of the input as it does in the lower median of
+  the other frames where both move and the value moves more than its unit floor. So a value that
+  follows the hand one to one, or a raw scroll-linked value held between scroll samples, passes. Two
+  lurches in a row do not excuse each other, and a value the input does not move gets no excuse from
+  one frame. The sub-steps of an excused frame do not count beside the step next to it, unless that is
+  the only reason the step stands out (a value that follows the hand at a steady speed and stops dead the
+  frame after: a speed corner, which passes).
+- Known limits of the examined steps. A tween of a frame or two (14 to 25 ms) is a jump at 60 fps that the
+  sub-steps may not tell from a fast ease: a 60 px jump in a fall of 79 px frame steps is found when it is
+  spread over 8 or 12 ms, and passes over 15, 17 or 25 ms. A jump spread over a whole frame by render
+  interpolation has an equal neighbour at every sub-step and passes (79 px against 18.3 px before it, 4.3
+  times). A 200 px move done as one 16.7 ms tween that starts half a frame in reads 100 px then 100 px on
+  the grid and passes; shifted by 0.03 ms, it fails the envelope. A page that moves a value in whole frames
+  only is skipped with a note, so a 60 px teleport mid-fall in fixed-step physics with no interpolation (79
+  px against 17.5 and 19 px beside it) passes, and a hand-written spring that integrates whole frames fails
+  where its steps turn small. A ball on fixed 1/120 s physics steps with no interpolation fails, because
+  half of each frame's change lands in one sub-step (15.625 px in the frame after 550 ms, 7.708 px in its
+  first half). The gate reads the frame grid at start phase 0, so a glitch between two frames is never seen:
+  a 20 px flick up for 10 ms, or a 60 px teleport for 10 ms, in each 2 s loop passes, though a 120 Hz screen
+  shows it every cycle. A step is examined by its net change, so a jump against the motion hides: a slip of
+  10 px back in a move of 3 px a frame (net step -7 px, 2.33 times the steps beside it, under 5% of the
+  range), a lurch of 55 px for 2 frames at the top speed of a 2000 px move (2.26 times its neighbour, 4.9%
+  of the range), and a 16 ms flick of 110 px across a frame edge in a 2000 px move (about 95 px against 43.6
+  px elsewhere) all pass. A move rounded to whole pixels shows a step of 1 px beside a hold at the slow end
+  of an ease, and every sub-step of it looks like a 1 px snap on a still value, so it fails. A raw scroll
+  mapping or a rubber band under a drag, whose gain changes by more than 2.5 times across the input, does
+  not keep the input's pace, and fails. The press-frame and scroll-burst-start exemptions cover every value,
+  not only the ones the input drives: an ambient 60 px bob whose clock a tap restarts snaps 19.74 px home in
+  one frame, and a header that hides in one frame (0 to -64 px) on the first scroll tick, and both pass. Two
+  scroll lurches excuse each other when theirs are the only two frames that carry a gain (a value that jumps
+  500 px as the scroll passes 150 px and jumps back when it returns). A grab pop in the step a press lands
+  in is not examined, and one of up to 2.5 times the pointer's step passes under a drag. A measured value
+  that jumps for real (an unweighted centre of grains that die one by one) is a wrong value: weight a centre
+  by what is drawn.
+- A value that is NaN or Infinity in a frame is for `values`, and a stepped value is for `stepped`.
+- A page that moves a value in whole frames only (a seek that ignores the part of a frame past the
+  last whole one) shows a hold and a jump at every frame. Four frames or more in a row of that are the
+  page's own clock: the gate cannot read between them, skips them and prints a `note:` line. One
+  teleport on such a page still fails.
+- The line: `suddenJumps: <name> moves <d> in the frame after <ms> ms, and <d2> in its first half; no
+  cut marks it`.
 
 **Stepped (`stepped`).** Motion held in drawings on purpose (cel on twos or threes, stop-motion, a
 sprite) is judged at its drawing rate, not as a row of pops.
@@ -185,6 +361,35 @@ sprite) is judged at its drawing rate, not as a row of pops.
 - A value that is an index or a count (a sprite's frame number, a ticking counter) is no motion
   channel: trace what it moves instead.
 
+**Tweens (`tweens`).** A sim page's control may act out its meaning with a keyframe tween beside the
+bodies (a tile that bobs or shakes as it is tapped), and `energyFalls` leaves it out. Only a sim
+page may name tweens: on any other kind a non-empty `tweens` fails with `tweens: only a sim page may
+name tweens`. A CSS `ease` segment ends at
+zero speed and the next starts at 0.4 of its mean speed, which reads as a bounce that rises, and a
+kick at a body's apex looks the same, so the name is guarded.
+
+- A copied bar's `trace.json` may name values in `tweens`. Each must be a value the page reports, it
+  must change over the frames the rules read, and after every cause it must end where it was just
+  before that cause (within its unit's floor) and hold still there for 3 frames. A thrown body lands
+  elsewhere, so it cannot be named.
+- Inside each cause's window the value's peaks (its local extremes, as distance from home) never
+  grow: a bob has equal peaks, a shake falling ones. A later peak further from home than an earlier
+  one by more than the unit's floor fails (`swings further from home`), so a body that hops 10, 20,
+  then 40 px and lands at 0 each time cannot be named to hide a rising bounce. A peak within the
+  floor of home is noise and does not count. A small dip before a larger swing (an anticipation)
+  reads as a swing that grows, so it is left out.
+- Each cause is judged from its start to the next cause. A tween the next cause cuts off while it
+  still moves is not read at its end, and the next cause's tween must come back to where this one
+  left. The last cause's tween must be at rest where the frames end.
+- Every other rule still reads a named value: the envelope (a named tween that pops still fails),
+  overshoot, values, `restsInTime` and reduced motion. A page whose only `px` or `deg` value is named
+  has no body and fails `energyFalls`.
+- Known limits of the tween guard. At 60 fps a shake with equal peaks reads its peaks up to one frame's
+  travel apart, so it can fail `swings further from home` (a linear shake whose peaks read 8.333 then 9.167
+  px fails, and so does one that reads 28.252 then 29.953 px). A shake that ramps up by design (1, 2, 4 px)
+  fails the same way, named or not (0.989 then 1.946 px). A named body that gets a push in mid-air which
+  raises no later peak passes (a push of 5.556 or 8.889 px of speed in one frame).
+
 **Objects (`objects`).** A page that reports objects in `__state().objects` reports a whole record
 in every frame the rules read. Each object is `{ box: [x, y, w, h], moves: [value names] }`, has a
 box of finite numbers at least 1 px wide and high in every frame, and is in the record from the
@@ -220,6 +425,68 @@ page that reports no objects passes.
   `<object>` jumps `<L>` object lengths at `<ms>` ms more than the values in its moves explain". A
   value with no fit that changes there causes the jump, since what it does to the box cannot be
   told. So a box that jumps sideways while its one value bobs it up and down fails.
+
+**Extents (`extents`).** A value that is an edge of many moving parts, such as the box around 24
+cards on one canvas, turns when another part becomes the extreme one, not because a body passes its
+rest. A copied bar's `trace.json` may declare it in `extents`. The page reports each part as an
+object, so the parts have boxes the `drawn` rule checks against the screen. A page that declares
+none passes.
+
+- `extents` maps a value name to `{ edge, parts }`. `edge` is one of `top`, `bottom`, `left`,
+  `right`, `width` and `height`, and `parts` lists 2 or more distinct objects of `__state().objects`.
+  The value must be a `px` value the page reports, and each part must be in the object record.
+- In every frame where a part is drawn, the value must equal that edge of the union of the drawn
+  parts' boxes, within 0.5 px (the `px` floor): "extents: `<name>` is not the `<edge>` of its parts
+  at `<ms>` ms". A part is drawn when its box is not gone (1 by 1) and not wholly outside the
+  viewport. A frame where no part is drawn is not judged.
+- The parts must be a group: 2 or more are drawn in more than half of the frames where any part is
+  drawn. So neither a single body nor one beside a part that is never drawn, or drawn with it for only a short while, can be named.
+- The edge must pass from one part to another: in some frame step, the part at the extreme of the
+  edge, among the parts drawn in both frames, is another one. "extents: `<name>` is held by
+  `<part>` throughout; an extent is an edge that passes from one part to another". An edge held by
+  one part throughout is that body's own value, however many parts sit beside it, a still decoy
+  included.
+- No part turns round and comes to rest while it holds the edge. A part within 0.5 px of the extreme
+  (it holds the edge) turns round when, in a frame, its coordinate along the edge (its top, bottom,
+  left or right side; a width or a height has two sides, each read on its own) goes one way by 0.5 px
+  or more over the 4 or 8 frame steps before it, and back by 0.5 px or more over the 4 or 8 after it,
+  and it then comes to rest still holding the edge: once it has come back by 0.5 px, it holds within
+  0.5 px for 100 ms, drawn and within 0.5 px of the extreme all the while. "extents: `<name>` has
+  `<part>` turn round at `<ms>` ms while it holds the edge and then comes to rest; a body that passes
+  its rest is no handover". How the part moves across the edge does not matter: a body that drifts
+  sideways while it springs past its rest turns round all the same. A card that goes on round an arc
+  goes through its apex the same way, and gives the edge to the next card before it rests: it is no
+  turn. A turn made by one part that then rests is a body passing its rest, so the value is no
+  extent, and `overshoot` and the pulse test judge it as they do any value: a value whose guard fails
+  is left out of nothing. A turn made while three parts or more hold that side in turn, within 1 s
+  before or after it, is the edge of a group, and is not read: a ring of cards that stops with one
+  card a few degrees past its apex, or a card whose edge wobbles as it tilts, is not a body past its
+  rest. Three holders at another time (a fade-in, an intro shuffle) excuse nothing. A body hidden
+  beside two decoys that each take the edge in turn within that second of its turn is not found (a
+  known limit).
+- Known limits of extents. Honest pages that fail: a ring of 5 or 8 cards that turns one slot rests with 2
+  cards straddling an extreme, so a card that crosses the apex counts as turning round; a staggered list, a
+  carousel, chip reflow and a notification stack hand the edge over only through membership steps, so the
+  guard reads one holder throughout; a fast spark burst's membership step is judged raw past the 5% share; a
+  stack that spreads starts in a tie, and the holder picked depends on the order of the parts in
+  `trace.json`; and a caused spring past its slot fails the extents rule though `overshoot` would allow it.
+  Faults that pass when declared: a part that goes gone for one frame and comes back 800 px away, or the
+  same card remounted under a second name; a reflow that snaps every staying chip 25 px, inside the 5% share
+  of an inflated range; a 30 Hz blink of the holder; a jolt, or a soft spring, that rests 0.6 px inside a
+  still neighbour; one card drawn as 3 aliased layers, which is one object with one box; and an overshoot
+  whose apex is handed between two names.
+- A value whose extent passes has no attack bound in the envelope's pulse test, and `overshoot`
+  leaves it out. Pops, fades, `values`, `objects`, `drawn` and the rules of the kind still read it.
+  The envelope reads it as its parts moved it: in a frame step where a part comes back or goes gone
+  (its box turns 1 by 1, or leaves or enters the viewport) the edge jumps because who is in the
+  union changed, not because a body moved, so that jump is left out of the value's whole change and
+  of its pop test, and the step counts for how far the edge moved over the parts drawn in both
+  frames. A card drawn in both frames that jumps in that step is still a pop, and so is one that
+  jumps in a step where none comes or goes. `suddenJumps` reads such a step the same way: it is
+  exempt when that change of the parts drawn in both frames is under 5% of the value's range (the
+  share `suddenJumps` judges a step on), and a card that jumps more than that in the step is a jump.
+  Every other value on the page is judged in full: a slide beside the ring that springs past its
+  rest still fails `overshoot`, and a badge that pulses with a slow attack still fails `envelope`.
 
 **Drawn (`drawn`).** The boxes a page reports in `__state().objects` hold what changes on screen.
 A page that reports no objects passes.
@@ -290,11 +557,32 @@ A page that reports no objects passes.
   that hides motion inside it fails, and so does one box for a body whose arm alone moves: report the
   arm as an object of its own. One gap remains: an inflated moving box can hide a second mover
   travelling inside it.
-- A listed cut must be a scene change. The gate reads it over two frame steps: its pair, and the
-  step into the pair's first frame, since a page may switch its scene at the cut or after it. The
-  larger change of the two must be more than half the viewport, or more than 3 times the most pixels
-  any other pair changes. Neither step is judged for anything else, whichever pair it is sampled as,
-  since a scene change is not drawn by the objects.
+- A listed cut must be a scene change or a small cut inside the objects. The gate reads it over two
+  frame steps: its pair, and the step into the pair's first frame, since a page may switch its scene
+  at the cut or after it. It is a scene change when the larger change of the two is more than half
+  the viewport, or more than 3 times the most pixels any other pair changes (the ratio is not used on
+  a page where no other pair changes at all, so a cut there is a scene change only by its share of
+  the view). Any other cut (a part
+  that snaps into a slot, a light that flips colour, a panel that appears in one frame) is a small
+  cut: it must change some pixels, and in each of the two steps the pixels outside every object may
+  be no more than the stray allowance above (1% of those changed, and 64 px). The objects counted
+  are the ones that changed in that step, drawn in either of its frames: the frame before the cut
+  and the cut frame. A small cut that reaches the background fails, and so does one declared on a
+  frame where nothing changes. Neither step is judged for anything else, whichever pair it is
+  sampled as. One gap remains: a page that reports no objects is not read for its cuts, so a small
+  cut there passes whatever it changes (reading it would turn red the tracked bars that declare cuts
+  and report no objects, until they report objects).
+- Known limits of a listed cut. A cut written to 3 decimals (1233.333 for frame 74) reads the step a frame
+  early and sees no change, so it fails with "the cut at 1233.333 ms changes 0% of the view"; write the
+  exact frame time. A cut listed in the middle of ordinary motion hides a teleport inside the moving part's
+  boxes (a 167 px skip in a slide), and one cut excuses a jump of every boxed part (a cut on a light that
+  excuses an 80 px jump of a card). A scene change is 3 times the most any other pair changes, so on a page
+  whose other motion is slow or small any glitch counts as one. A cut on a frame where nothing changes
+  passes on any moving page, and its exemption of the 2 frames before it hides a teleport there. Only the
+  first 16 cuts are read, though every listed cut exempts its frames, so a glitch behind the 17th cut of a
+  ticker passes; 13 cuts listed on a stutter's catch-ups pass; and a 2-frame full-view white flash with both
+  edges listed passes. A 3-frame blink whose second cut falls in the first cut's onset window fails the
+  envelope.
 - A pair may span a scroll, on a page that scrolls itself under `?seek`. A box counts as moved,
   changed, gone or back only when it does so in both frames of reference, so a fixed header and an
   in-flow card both hold still across a scroll, and each side of the first frame counts both where
@@ -350,6 +638,7 @@ where it comes to rest and come back, and opacity never does.
   overshoots the first swing: a way home that peaks after 500 ms and settles past home, an endless
   bounce whose next hop starts with no hold, and any opacity value, since opacity never passes where
   it rests.
+- A value declared in `extents` (see Extents) whose guard passes is left out.
 - A pulse (its first turn is its farthest, within 500 ms, and it comes back at least halfway) is
   no overshoot, and neither is a sway that turns at the same two levels.
 - A designed loop (see the envelope rule) may settle past its rest by up to 50% of its move, once
@@ -357,27 +646,55 @@ where it comes to rest and come back, and opacity never does.
   loader's squash, a relay of hops, a breath, a badge that springs in. A one-time spring at load, an
   endless bounce that never holds still, and a loop that pops still fail. Opacity never overshoots,
   in a loop too.
+- On a choreo or sim page, the lead-in of a loop a cause started (the value did not move before that
+  cause) is a move the person caused: it may pass its rest from the cause until the lead-in ends, as a
+  spring does. A loop that moves before the first cause is the page's own, and a tap in its lead-in
+  does not excuse its spring.
 
 **The loop stops at rest (`loopStopsAtRest`).** No rAF callback runs in the second after the page comes to rest.
 
-- The page is at rest when no value has moved by more than 0.001 for 150 ms on its live loop.
-- On a choreo or sim page, the gate first waits for the sequence to end, as the `?seek` frames show
-  it: a pause inside the sequence is no rest. There every value the `?seek` frames move away from
-  where it was at the first cause must have left it on the live page too (by its unit floor or 2%
-  of its range): a live loop that stops in a pause and never plays the rest fails. Where a value
-  lands is not compared, since a live frame may run long and chaotic physics may land elsewhere. A value the gate sorts as a loop may keep running:
-  the page is at rest when every other value is, and the loop must pause off screen (see that
+- The page is at rest when no value has moved by more than 0.001 for 150 ms on its live loop, and every value that is no
+  loop (on a page with a loop too) has changed by no more than its unit floor in total over the last second. A creep too
+  slow for two reads 50 ms apart to see, 0.02 a second, is no rest: it changes a scale by 0.02 in a second, over the 0.002 floor.
+- On every kind but idle, the gate plays the input, then waits for the sequence to end, as the `?seek`
+  frames show it: a pause inside the sequence (a gate that fades out, a blank beat, then the next
+  page arriving) is no rest. There every value but the loops must rest where its `?seek` frames end, within its unit
+  floor (0.01 of its range for a unit with none), on either side: a live page that stops in a pause,
+  or partway through a fade, with the rest of the sequence never played, fails, even when the value ends where it started
+  (a toast that never leaves), and so does one that runs past the end (a panel that flies on past its slot, a badge that grows
+  to 3). A page draws its random values from a seeded stream, the same in live play as under `?seek` (reseeded where each
+  sequence starts), so a live run lands where its `?seek` frames end. Known limit: a page that draws unseeded random values
+  live can fail the rest compare. A spring that bounces or a pop that backs out must land at its `?seek` rest too: a stall at a
+  peak fails. A value the `?seek` frames report and the live page never reports (a late element
+  that never mounts) fails. A live frame may run longer than 1/60 s, which does not change where a page that has stopped
+  lands. A value the gate sorts as a loop may keep
+  running: the page is at rest when every other value is, and the loop must pause off screen (see that
   kind's rules).
+- Known limits of the rest compare. A value that comes back to where it started cannot be told from one that
+  never played: a toast that slides in, holds 4 s and leaves, or fades 0 to 1 to 0, passes when the live
+  page never shows it. A unit with no floor gets 1% of its range, so a count-up from 0 to 10000 that stops
+  at 9920 passes. The read ends 15 s past the stop, so a toast that holds 16 s on a timer and never leaves
+  live passes. The gate waits for the `?seek` sequence to end, so a live beat more than about 1.1 s longer
+  than the seeked one (a reply that waits 2.4 s live and 1 s seeked) reads as mid-beat and fails. A fling
+  whose exponential tail moves less than 0.001 px per 50 ms counts as quiet while the page is still 0.01 to
+  0.02 px from its snap, and a spring that ticks 0.0001 px for 3 frames past its rest counts as moving, so
+  both fail. A chip that hops 3 px every 1.2 s beside a loop passes, because the quiet second between hops
+  reads as rest.
 
 **The console stays clean (`consoleClean`).** No error, warning or uncaught error, on the `?seek` run or the live run.
 
 **Reduced motion (`reducedMotion`).** Input still answers, the target is reached in 1 frame, and the still frame is
-not the blank start state.
+not the blank start state. A loop is no value that answers the input: it holds still under reduced motion, whatever the input does to it, as far as the loop explains the motion. A value the input also moves by more than the loop's own swing (it differs from the same page with no input by more than the loop's range over one period) still answers, loop or not. A loop that begins at the release differs from that page by its own swing at most, so it holds still.
 
 - Under `prefers-reduced-motion: reduce`, a value may change only in the first frame and in the
   frame the input changes or the one after it (on a choreo or sim page, also where it enters or
   leaves a held state, below).
 - A value that moves with the input without reduced motion also moves with it under reduced motion.
+- Known limits of reduced motion. A live page may change nothing more than a frame after the input changes,
+  so a toast that holds 4 s, appears in one frame 0.3 s after the release and leaves in one frame after its
+  hold, as a choreo page may, fails. A loop must hold still, so an opacity pulse that keeps running because
+  Motion's own reduced setup (`<MotionConfig reducedMotion="user">` drops transforms and keeps opacity)
+  fails.
 - On a choreo or sim page the gate instead plays the input with its last cause played once more,
   500 ms after its sequence ends, with and without reduced motion. Each value ends every caused
   sequence, the repeat's too, where it ends without reduced motion (within its unit floor or 2% of
@@ -390,14 +707,24 @@ not the blank start state.
   plays its way back, may be skipped.
 - The blank start state is a start that the page leaves and never comes back to without reduced
   motion: an entrance. The last frame under reduced motion must not be that state. An angle (`deg`)
-  comes back after a whole turn, a ticking loop each time it moves on by its step, and a value that
-  moves at one steady speed (a marquee) each frame, so none of them is an entrance.
+  comes back after a whole turn. A loop has no start or end state to show when its start state lies inside
+  its own swing, so the check leaves it out, a ticking hand and a marquee too. A value that fades in from
+  a start outside its swing and then loops (a fade-in, then a glow) is an entrance, and the check judges it. A marquee is a value that moves at one steady speed over its last 500 ms,
+  and it counts only when it came to its speed from rest: one that never moved faster than it moves
+  now. A slide-on that comes down to a slow drift is an entrance.
 
 ## Rules for live pages
 
 A live page answers a pointer as it moves.
 
-**It follows the input (`follows`).** While the pointer drags, a value moves in at least 80% of the frames.
+**Loops.** As on a choreo page, a value that repeats at a fixed period, or moves at one steady speed, is a loop. It may keep
+running, and it gets the idle rules: it pauses off screen (`pausesOffScreen`) and resumes and keeps moving (`resumes`). The gate plays the input before it looks, so a loop the input starts is running then. Known limits: `pausesOffScreen` and `resumes` run only for loops. A page with no loop that pauses when hidden and never resumes passes. A page that restarts only its loop on return passes when a delayed toast has not begun at the trip, because the toast rests where it started either way. A catch-up burst on return (0.3 s of missed time played at 5 times the speed for about 75 ms) passes, because `resumes` checks that a frame runs and the loop moves, not how fast.
+
+**It follows the input (`follows`).** While the pointer drags, a value moves in at least 80% of the frames where the hand
+moves. A frame step counts when a change in the pointer's place falls in it (the page sees a sample at the first frame
+at or after the sample's time), so a hand logged less often than once a frame, such as a pointer at 30 Hz, does not count
+the frames where it holds still: a value that follows it 1:1 cannot move there. A press or a lift alone is not a move. A
+press held still, where the hand never changes place, has no move to follow: every frame of the drag counts then.
 A stepped value moves in drawings (a dot on a grid): it counts as moving while its drawings keep changing,
 as its pose line shows. From the first pointer sample until the values rest after the last one, a stepped value that
 moves an object, is not an index, and follows a pointer axis is held to the hand in its own drawing steps:
@@ -444,12 +771,27 @@ drag grabbed it, moved by how far each value that follows the pointer has gone s
 value follows keeps the grab point. The gate tries the handle's spot one frame before the press,
 then at the press, and judges the first press that grabs. The press must grab: while the pointer
 holds still, a value that was still on its way to rest covers at most 25% of that way (when every
-such value already rests, the rule fails: there is nothing to test). And it must
+such value already rests, the rule fails: there is nothing to test, unless the handle is gone: see
+below). And it must
 not jump: no value moves by more than 2.5 times its largest frame step just before the press (plus
 1% of its range). The rest, and each value's range, come from a run of the first press alone, so a
 second press in a bar's input cannot move them. A value follows the pointer when it moves with one
 pointer axis during the drag (|r| 0.9 or more). With no such value the press cannot be aimed, and the
 rule fails.
+
+A drag that commits, as a swipe to dismiss or a pass slid through a reader, runs the handle off at
+its own speed, and the handle stays gone: there is nothing to settle and nothing to grab. The rule
+passes, with a note, when for the object each value that follows the pointer moves (the page's object
+record, `__state().objects`) the box was drawn at the grab and is gone (`[x, y, 1, 1]`, or wholly
+outside the viewport) in every frame from some frame to the end of the span, and one of those values
+moved in the frame the object went. It makes no difference whether the hand lets go after the handle
+is gone, or while it still runs (the press then finds it on screen and grabs nothing of it, and the
+handle runs on to be gone as it would have). When every value rests at the press, that is the only
+way the rule passes; when a press grabs nothing, it is the only way it is not a miss. It fails as
+before when the page reports no objects, when a value moves no object, when the handle is drawn at
+the end of the span (a spring-back that rests on screen, a handle that stays where it was let go, a
+handle that blinks out at the release and comes back), or when the object went in a frame where
+none of its values moved. Known limit: the rule does not take a loop's own swing off the value, so a dragged dot that also floats with a 3 px, 0.8 s bob fails the press; report the bob as a value of its own.
 
 **The input.** A copied bar plays the pointer input in its `trace.json`. Any other page gets a
 press at the viewport center (640, 360), then a drag along a 300 px curve over 600 ms, one sample
@@ -462,3 +804,6 @@ at the first sample, a move at each sample, up after the last. The rules above j
 before the first one with `down` 0. A bar's `trace.json` input may hold a second press. The regrab input uses the flag, so
 a live page under `?seek` must read it. With a bar's own input, the rules read frames to 3000 ms,
 the bar's last `trace.json` row, or 1000 ms after the input's last sample, whichever is latest.
+Any page, and a bar too, is also read to 1000 ms past the end of the sequence the input starts: the last move of a value that
+is no loop, looked for up to 15 s past the input's last sample. So a toast that holds 4 s, a blank beat and the element after it
+are read whole. A value still moving 15 s past the input fails `span`.

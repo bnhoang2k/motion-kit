@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>corner</title>
+<style>body { margin: 0 } #dot { width: 40px; height: 40px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<script>
+// A dot that holds at x 0, then moves with a set shape from a set start time. The tests copy this page and
+// replace the CFG line with the moves to plant, so one page covers every shape. The value is read straight
+// from the time, so the fixed clock and the page agree. Times are in ms; speeds are px a frame (1000/60 ms).
+//   linear: from `start` to `stop`, `speed` px a frame, then holds. The speed has a corner at each end.
+//   expOut: from `start`, closes the share `k` of the gap to `to` each frame. It starts at full speed from rest.
+//   expIn:  from `start`, speeds up by the factor `g` each frame, from a first step of `amp` px, until it has moved `to`.
+//   spring: from `start`, a damped spring to `to`, with angular frequency `w` (rad/s) and damping ratio `z` below 1.
+//   jump:   at `at`, the value moves `by` px in no time.
+const CFG = { moves: [] };
+const F = 1000 / 60;
+const dot = document.getElementById("dot");
+function xAt(ms) {
+  let x = 0;
+  for (const m of CFG.moves) {
+    const u = (ms - (m.start ?? m.at)) / F;
+    if (m.type === "linear") x += m.speed * (Math.min(ms, m.stop) - Math.min(ms, m.start)) / F;
+    else if (m.type === "expOut") x += u > 0 ? m.to * (1 - Math.pow(1 - m.k, u)) : 0;
+    else if (m.type === "expIn") x += u > 0 ? Math.min(m.to, m.amp * (Math.pow(m.g, u) - 1)) : 0;
+    else if (m.type === "spring") {
+      const s = Math.max(ms - m.start, 0) / 1000;
+      const a = m.z * m.w;
+      const d = m.w * Math.sqrt(1 - m.z * m.z);
+      x += m.to * (1 - Math.exp(-a * s) * (Math.cos(d * s) + (a / d) * Math.sin(d * s)));
+    } else if (m.type === "jump") x += ms >= m.at ? m.by : 0;
+  }
+  return x;
+}
+let x = 0;
+window.__seek = (ms) => { x = xAt(ms); dot.style.transform = `translateX(${x}px)`; };
+window.__state = () => ({ values: { x }, events: {} });
+window.__seek(0);
+</script>
+</body>
+</html>

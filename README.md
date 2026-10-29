@@ -16,12 +16,12 @@ real browser before it calls the animation done.
 Run this in your project folder:
 
 ```bash
-npx github:bnhoang2k/motion-kit#v0.4.0 init
+npx github:bnhoang2k/motion-kit#v0.5.0 init
 ```
 
 It installs motion-kit, sets up the browser it uses to check animations, and adds one line to
 your `CLAUDE.md` (and to `AGENTS.md`, if your project has one). Running it again is safe: it
-skips what is already done. The `v0.4.0` tag exists once that release is published.
+skips what is already done. The `v0.5.0` tag exists once that release is published.
 
 Then ask for animations as usual. That is all.
 

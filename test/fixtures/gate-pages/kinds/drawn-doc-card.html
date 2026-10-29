@@ -10,9 +10,9 @@
 <div id="card"></div>
 <div id="bar"></div>
 <script>
-// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: an in-flow card the document carries, reported as an object with moves: [], scrolls into view below the fold. The bar is the flipbook, drawn where the page reports it.
+// The drawn check on a scroll page that scrolls itself under ?seek, so pairs span its scrolls: an in-flow card the document carries, reported as an object with moves: [], scrolls into view below the fold. The bar is a smooth follower, drawn where the page reports it (a flipbook's drawings step by design, which the sudden-jumps rule reads as jumps on a page that does not name them stepped).
 window.FAULT = "";
-window.VARIANT = "flipbook";
+window.VARIANT = "stepped";
 window.SCROLLS = true;
 </script>
 <script src="scroll.js"></script>

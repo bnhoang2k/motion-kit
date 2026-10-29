@@ -12,9 +12,10 @@ export const LOOPS_JS = path.resolve(import.meta.dirname, "../fixtures/gate-page
 
 export type LoopShape =
   | "loader" | "relay" | "breath" | "badge" | "tick" | "blink" | "swing" | "spin" | "shimmer" | "hops2" | "noisySwing"
-  | "ballDrop" | "antic" | "linearHold" | "marquee"
+  | "ballDrop" | "antic" | "linearHold" | "marquee" | "marqueeSlow" | "marqueeFast" | "marqueeRamp" | "entranceBlank" | "entranceDrift10" | "entranceDrift30" | "sineBreath" | "fadeInGlow"
   | "bounce" | "overcap" | "springOnce" | "pops" | "drift" | "shimmerOver" | "lateSpring" | "latePop" | "lateSettle" | "latePopLoop" | "reducedLate"
-  | "stepOnRebound" | "stepOnReboundLoop" | "homeSettle";
+  | "stepOnRebound" | "stepOnReboundLoop" | "homeSettle"
+  | "bobJitter" | "breathJitter" | "marqueeEase1" | "bobSinks" | "pulseGrows" | "shimmerFades";
 /** `stillAt`, when set, moves the reduced-motion still moment to that share of the period (0: the start state). */
 export type LoopSpec = { shape: LoopShape; periodS: number; leadS: number; stillAt?: number };
 
@@ -45,6 +46,13 @@ const SHAPES: Record<LoopShape, { units: Record<string, string>; motion: string;
       const sy = ph >= pre ? 1 - (1 - MOTION.squash) * eis((ph - pre) / (P - pre)) : t < P ? 1 : 1 - (1 - MOTION.squash) * (1 - spr(ph, w, MOTION.zeta, end));
       return { y, sy };`,
     stillAt: 0.5,
+  },
+  // A breath that is a plain sine, 1 + A sin(2 pi t / P): its peaks sit off the frame grid at most periods.
+  sineBreath: {
+    units: { s: "scale" },
+    motion: "amp: 0.02",
+    body: `return { s: 1 + MOTION.amp * Math.sin((2 * Math.PI * t) / MOTION.periodS) };`,
+    stillAt: 0,
   },
   // Three dots hop in turn, each dipping a little below its rest as it lands: uneven starts, the same each cycle.
   relay: {
@@ -177,6 +185,47 @@ const SHAPES: Record<LoopShape, { units: Record<string, string>; motion: string;
     body: "return { x: -MOTION.pxPerS * t };",
     stillAt: 0,
   },
+  // The same at 20 and at 400 px/s, and one whose speed ramps up over 1.5 s and then holds: the gate reads its last 500 ms.
+  marqueeSlow: { units: { x: "px" }, motion: "pxPerS: 20", body: "return { x: -MOTION.pxPerS * t };", stillAt: 0 },
+  marqueeFast: { units: { x: "px" }, motion: "pxPerS: 400", body: "return { x: -MOTION.pxPerS * t };", stillAt: 0 },
+  marqueeRamp: {
+    units: { x: "px" },
+    motion: "pxPerS: 95, rampS: 1.5",
+    body: "const r = MOTION.rampS; return { x: -MOTION.pxPerS * (t < r ? (t * t) / (2 * r) : t - r / 2) };",
+    stillAt: 0,
+  },
+  // An entrance that slides on over `inS` and rests, shown at its start under reduced motion: the last 500 ms are still, so
+  // it is no steady speed and the blank start state is judged.
+  entranceBlank: {
+    units: { x: "px" },
+    motion: "inS: 1",
+    body: "return { x: -200 * (1 - eis(t / MOTION.inS)) };",
+    stillAt: 0,
+  },
+  // An entrance that slides on from -800 px over `inS` and then drifts on at 10 or 30 px/s, shown at its start under
+  // reduced motion: it came to its drift faster than the drift, so it is an entrance whose start state is blank. The
+  // frame step of a drift this slow does not bring the start state back.
+  entranceDrift10: {
+    units: { x: "px" },
+    motion: "inS: 1, pxPerS: 10",
+    body: "return { x: -800 * (1 - eis(t / MOTION.inS)) + MOTION.pxPerS * t };",
+    stillAt: 0,
+  },
+  entranceDrift30: {
+    units: { x: "px" },
+    motion: "inS: 1, pxPerS: 30",
+    body: "return { x: -800 * (1 - eis(t / MOTION.inS)) + MOTION.pxPerS * t };",
+    stillAt: 0,
+  },
+  // An entrance that fades in over 0.6 s from opacity 0 and then glows between 1 and 0.9 every period. Its first 0.6 s are
+  // under a loop's 2 s lead-in, so it is sorted as a loop, but its start state, 0, lies outside the glow's swing: shown
+  // at its start under reduced motion the page is blank (the faulty case), shown in the glow it is not (the honest one).
+  fadeInGlow: {
+    units: { o: "opacity" },
+    motion: "fadeS: 0.6, low: 0.9",
+    body: "return { o: eis(t / MOTION.fadeS) * (t < MOTION.fadeS ? 1 : 1 - ((1 - MOTION.low) * (1 - Math.cos((2 * Math.PI * (t - MOTION.fadeS)) / MOTION.periodS))) / 2) };",
+    stillAt: 1.3,
+  },
   // Faults. An endless attention bounce: a hop that lands on a loose spring and never holds still.
   bounce: {
     units: { y: "px" },
@@ -278,6 +327,46 @@ const SHAPES: Record<LoopShape, { units: Record<string, string>; motion: string;
     body: `const P = MOTION.periodS, u = t % P;
       return { x: u < 1 ? 100 * eis(u) : u < 1.05 ? 100 : 100 * (1 - settle((u - 1.05) / 0.6, 0.8)) };`,
     stillAt: 0.2,
+  },
+  // A bob and a breath that hold their level, with float jitter of 1e-5 on top; the periods in the sweep sit off the frame grid.
+  bobJitter: {
+    units: { y: "px" },
+    motion: "ampPx: 12",
+    body: "return { y: -MOTION.ampPx * (1 - Math.cos((2 * Math.PI * t) / MOTION.periodS)) / 2 + 1e-5 * Math.sin(t * 977.3) };",
+    stillAt: 0,
+  },
+  breathJitter: {
+    units: { s: "scale" },
+    motion: "amp: 0.03",
+    body: "return { s: 1 + (MOTION.amp * (1 - Math.cos((2 * Math.PI * t) / MOTION.periodS))) / 2 + 1e-5 * Math.sin(t * 977.3) };",
+    stillAt: 0,
+  },
+  // A marquee at 95 px/s whose speed eases in over 1 s from load (a cubic), then holds.
+  marqueeEase1: {
+    units: { x: "px" },
+    motion: "pxPerS: 95, easeS: 1",
+    body: "const r = MOTION.easeS, p = t / r; return { x: -MOTION.pxPerS * (t < r ? r * (p ** 3 - p ** 4 / 2) : t - r / 2) };",
+    stillAt: 0,
+  },
+  // The same shapes that drift a little each period, by less than the unit's floor: a bob that sinks 0.45 px a cycle, a pulse
+  // that grows 1% of its swing a beat, an opacity loop that fades 0.002 a cycle. None repeats: after a minute each has moved on.
+  bobSinks: {
+    units: { y: "px" },
+    motion: "ampPx: 12, sinkPx: 0.45",
+    body: "return { y: -MOTION.ampPx * (1 - Math.cos((2 * Math.PI * t) / MOTION.periodS)) / 2 + (MOTION.sinkPx * t) / MOTION.periodS };",
+    stillAt: 0,
+  },
+  pulseGrows: {
+    units: { s: "scale" },
+    motion: "amp: 0.04, grow: 0.01",
+    body: "return { s: 1 + (MOTION.amp * (1 + (MOTION.grow * t) / MOTION.periodS) * (1 - Math.cos((2 * Math.PI * t) / MOTION.periodS))) / 2 };",
+    stillAt: 0,
+  },
+  shimmerFades: {
+    units: { o: "opacity" },
+    motion: "fadePerCycle: 0.002",
+    body: "return { o: 0.7 + 0.3 * Math.cos((2 * Math.PI * t) / MOTION.periodS) - (MOTION.fadePerCycle * t) / MOTION.periodS };",
+    stillAt: 0,
   },
   // A hop that settles past its rest, its period 2% longer each cycle: it never repeats.
   drift: {

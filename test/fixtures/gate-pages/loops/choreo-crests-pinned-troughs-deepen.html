@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="choreo">
+<title>choreo: a tap starts a loop whose crests stay at 0 while its troughs deepen</title>
+<style>html { background: #fff } body { margin: 0 } .b { position: fixed; width: 40px; height: 40px; border-radius: 8px; background: #333 }</style>
+</head>
+<body>
+<script>window.RESTART = false; window.NOSEQ = false;
+const MOTION = { travelPx: 200, slideS: 0.4, staggerS: 0.12, ...{ top: 0, growPxPerS: 4, periodS: 1.2, endS: Infinity, reducedAtS: 0 } };
+const UNITS = { y: "px" };
+function valuesAfter(d) { if (d === null) return { y: 0 }; const M = MOTION; return { y: M.top - M.growPxPerS * d * (1 - Math.cos(2 * Math.PI * d / M.periodS)) / 2 }; }
+</script>
+<script src="beats.js"></script>
+</body>
+</html>

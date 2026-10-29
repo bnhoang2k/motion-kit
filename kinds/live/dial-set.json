@@ -1,0 +1,6 @@
+[
+  { "name": "live.release", "unit": "s,ratio", "meaning": "The spring an element settles on after the pointer lets go." },
+  { "name": "live.coast", "unit": "s", "meaning": "How long a fling takes to settle back to its resting motion after the pointer lets go." },
+  { "name": "live.revealDelay", "unit": "s", "meaning": "The wait from a drop that succeeds to the first frame of the view that follows." },
+  { "name": "live.lag", "unit": "s", "meaning": "How far a held element's turn or tilt lags behind the pointer, as a time constant." }
+]

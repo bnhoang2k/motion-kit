@@ -96,7 +96,9 @@ const energyFalls: KindRule = {
     const frames = await page.frames(0, spanOf(ctx));
     const { units } = await page.state();
     const roles = await rolesOf(page, ctx);
-    const bodies = valueNames(frames).filter((n) => roles.get(n) === "position");
+    // A value a bar's trace.json names in `tweens` is a control's keyframe tween, not a body: the `tweens` rule guards it.
+    const tweens = new Set(ctx.tweens ?? []);
+    const bodies = valueNames(frames).filter((n) => roles.get(n) === "position" && !tweens.has(n));
     const causes = ctx.causes ?? causesOf(ctx.input);
     const out: string[] = [];
     let moved = false;

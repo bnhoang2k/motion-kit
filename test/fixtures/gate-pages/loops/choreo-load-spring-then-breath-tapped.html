@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="choreo">
+<title>choreo: a spring from load overshoots while a tap slides two bars</title>
+<style>html { background: #fff } body { margin: 0 } .b { position: fixed; width: 60px; height: 60px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<script>
+const MOTION = { maxStepS: 0.05, reducedD: 10, slideS: 0.4, slidePx: 100 };
+const UNITS = Object.assign({ x0: "px", x1: "px" }, { s: "scale" });
+// s starts on load: a spring in from 0.6 that passes its rest (the page's own overshoot, not the tap's: it goes on after the tap's slides end), then a 4.4 s breath.
+// Under reduced motion it shows a still moment of the breath.
+const rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function loop(clock) { const T = rm ? 9 : clock; return { s: 1 - 0.4 * Math.exp(-2.5 * T) * Math.cos(2 * Math.PI * T / 1.2) + 0.02 * Math.sin(2 * Math.PI * T / 4.4) }; }
+function valuesAt(d, T) {
+  const sl = (k) => { const p = d === null ? 0 : Math.max(0, Math.min(1, (d - 0.12 * k) / MOTION.slideS)); return MOTION.slidePx * (1 - (1 - p) ** 3); };
+  return Object.assign({ x0: sl(0), x1: sl(1) }, loop(T));
+}
+</script>
+<script src="value-at.js"></script>
+</body>
+</html>

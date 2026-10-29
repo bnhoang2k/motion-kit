@@ -1,5 +1,6 @@
 import { FRAME_MS, type GatePage } from "../../src/gate/harness.ts";
-import { rangeOf, round, series, spanOf, stillEps, valueNames, type KindRule, type RuleContext } from "../../src/gate/kind-gate.ts";
+import { forLoops, rangeOf, round, series, spanOf, stillEps, valueNames, type KindRule, type RuleContext } from "../../src/gate/kind-gate.ts";
+import { rules as idleRules } from "../idle/gate.ts";
 import { leadWindow, restGains, steppedLeads } from "../../src/gate/leads.ts";
 import { inputSpan } from "../../src/gate/synthetic-input.ts";
 
@@ -52,7 +53,8 @@ const scroll: KindRule = {
   },
 };
 
-export const rules: KindRule[] = [reverses, scroll];
+/** A scroll page with a loop gets the idle rules for it: it pauses off screen and resumes within one frame. */
+export const rules: KindRule[] = [reverses, scroll, ...idleRules.map(forLoops)];
 
 /** The stepped values `scroll` judges inside the input window, which the envelope rule leaves to it. */
 export const inputLeads = (page: GatePage, ctx: RuleContext) => leadWindow(page, ctx, ctx.input!, restGains);

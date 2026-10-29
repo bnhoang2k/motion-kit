@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="sim">
+<title>sim: no time step cap, a loop that starts only on a tap: a ball drops and bounces to rest, another rolls off screen</title>
+<style>html { background: #fff } body { margin: 0 } .ball { position: fixed; width: 40px; height: 40px; border-radius: 50%; background: #333 } #a { left: 30vw; top: 560px } #b { left: 70vw; top: 600px } #ring { position: fixed; left: 50vw; top: 100px; width: 80px; height: 80px; border: 2px solid #333; border-radius: 50% } #fade { position: fixed; left: 100px; top: 100px; width: 80px; height: 40px; background: #999 }</style>
+</head>
+<body>
+<div class="ball" id="a"></div><div class="ball" id="b"></div><div id="ring"></div><div id="fade"></div>
+<script>window.FAULT = "no-cap"; window.VARIANT = "tap-loop";</script>
+<script src="sim.js"></script>
+</body>
+</html>

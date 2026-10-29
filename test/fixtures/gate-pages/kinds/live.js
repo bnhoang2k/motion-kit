@@ -16,7 +16,17 @@
 // 100 px further down than the hand, the way the drag's dip goes, 300 ms into the first drag, and keeps it there;
 // "settle-glitch" draws the dot 100 px off its place in the 3rd frame after the release, for that one frame;
 // "badge-pop" draws the badge 72 px (3 of its lengths) higher in the third drawing from the first grab, for that one
-// drawing; "blip" draws the dot one grid cell further right for the one frame 300 ms into the first drag.
+// drawing; "blip" draws the dot one grid cell further right for the one frame 300 ms into the first drag. The fault
+// "skip-moves" ignores every second change of the hand's place (the dot holds until the next change), and "lag" follows
+// the hand where it was 100 ms ago. VARIANT "drift": while the hand is down the dot also creeps 2 px a frame right, on
+// its own, so it moves under a hand that holds still. VARIANT "commit": a swipe that commits. The dot follows the hand
+// until it is commitPx right of its rest, then runs right on its own at window.RUN_PXS px/s whatever the hand does, and
+// is gone by the release: it stops at the viewport's edge and is not drawn there (window.HIDE: the page reports a box
+// of 1 by 1 for it, else its box lies wholly outside the viewport). A press after that grabs nothing. window.OBJECTS
+// reports the dot as an object, as above. window.COMMIT_PX sets another commit distance, and window.OMEGA another
+// release spring (rad/s). The faults "stay" (the dot stops on screen, still drawn, as one that was let go) and "vanish"
+// (the dot stops on screen, and is then reported gone with no move of its value) plant what a commit must not excuse. The fault "blink" is a handle that rests on screen
+// and is reported gone (a box of 1 by 1, not drawn) from the release to blinkS later, then drawn again at rest.
 const FAULT = window.FAULT || "";
 const VARIANT = window.VARIANT || "";
 const STEP = window.STEP || "";
@@ -43,7 +53,15 @@ const MOTION = {
   hopS: 0.24,       // ...each hop's length
   hops: 2,          // ...and how many
   popPx: 72,        // FAULT "badge-pop": how much higher the badge is drawn
+  lagS: 0.1,        // FAULT "lag": the dot follows the hand as it was this long ago
+  commitPx: window.COMMIT_PX || 200, // VARIANT "commit": the dot commits this far right of its rest
+  runPxS: window.RUN_PXS || 1500,    // ...and runs on at this speed
+  exitPx: 660,      // ...to here, where its left edge reaches the viewport's right edge (1280 px wide)
+  stayPx: 120,      // FAULT "stay" and "vanish": the dot stops this far past the commit
+  vanishS: 0.03,    // FAULT "vanish": it is reported gone this long after it stops
+  blinkS: 0.45,     // FAULT "blink": it is reported gone this long after the release
 };
+if (window.OMEGA) MOTION.omega = window.OMEGA;
 // Where the dot rests: its rest spot, or under VARIANT "thumb" 120 px right of the press.
 const homeX = VARIANT === "thumb" ? MOTION.thumbPx : 0;
 // What the page shows and reports: the dot's place, on the grid under STEP "grid".
@@ -58,7 +76,7 @@ const hand = { down: false, x: 0, y: 0 };
 let S;
 function reset() {
   const stillO = FAULT === "reduced-blank" ? 0 : 1;
-  S = { t: 0, x: homeX, y: 0, vx: 0, vy: 0, o: reduced ? stillO : 0, down: false, grab: null, rel: null, dimAt: null, tx: homeX, ty: 0, gx: 0, still: true, firstAt: null, b: 0, drawing: -1, dx: homeX, dy: 0, db: 0 };
+  S = { t: 0, x: homeX, y: 0, vx: 0, vy: 0, o: reduced ? stillO : 0, down: false, grab: null, rel: null, dimAt: null, tx: homeX, ty: 0, gx: 0, still: true, firstAt: null, relAt: null, run: null, gone: false, b: 0, drawing: -1, dx: homeX, dy: 0, db: 0, moves: 0, seenX: null, seenY: null, skip: false, dr: 0 };
 }
 // Under ?seek the pointer comes from window.__input samples [ms, x, y] or [ms, x, y, down]: it sits
 // at the latest sample, down unless that sample's down is 0, and up after the last sample.
@@ -70,6 +88,17 @@ function pointerAt(ms) {
   if (!p) return { down: false, x: 0, y: 0 };
   return { down: p[3] !== 0 && ms <= s[s.length - 1][0] + 1e-6, x: p[1], y: p[2] };
 }
+// FAULT "lag": the live loop keeps a trail of the hand to read it as it was lagS ago; ?seek reads the samples at the earlier time.
+const lagMs = FAULT === "lag" ? MOTION.lagS * 1000 : 0;
+const trail = [];
+function handAt(ms) {
+  if (seekMode) return pointerAt(ms - lagMs);
+  if (!lagMs) return hand;
+  trail.push({ ms, down: hand.down, x: hand.x, y: hand.y });
+  let p = { down: false, x: 0, y: 0 };
+  for (const q of trail) if (q.ms <= ms - lagMs + 1e-6) p = q;
+  return p;
+}
 function springAt(u, x0, v0) {
   const w = MOTION.omega, z = MOTION.zeta, wd = w * Math.sqrt(1 - z * z);
   return Math.exp(-z * w * u) * (x0 * Math.cos(wd * u) + ((v0 + z * w * x0) / wd) * Math.sin(wd * u));
@@ -80,13 +109,29 @@ function swingLeft(u, x0, v0) {
 }
 // Whether a new press grabs: the hit test, and the fault that ignores a press while the dot settles.
 function grabs(p) {
+  if (S.run) return false;
   if (FAULT === "regrab-ignored" && S.rel) return false;
   if (VARIANT !== "hit-test" && VARIANT !== "slider-x") return true;
   return Math.hypot(p.x - MOTION.restAt[0] - S.x, p.y - MOTION.restAt[1] - S.y) <= MOTION.reachPx;
 }
+// VARIANT "commit", after the commit: the dot runs on at its own speed to where it stops, whatever the hand does.
+function runOff(end) {
+  const R = S.run, stop = FAULT === "stay" || FAULT === "vanish" ? MOTION.commitPx + MOTION.stayPx : MOTION.exitPx;
+  S.x = reduced ? stop : Math.min(stop, R.x0 + MOTION.runPxS * (end - R.t0));
+  R.done = S.x >= stop;
+  const stoppedAt = reduced ? R.t0 : R.t0 + (stop - R.x0) / MOTION.runPxS;
+  S.gone = FAULT === "vanish" ? end >= stoppedAt + MOTION.vanishS : FAULT !== "stay" && R.done;
+}
 function step(h) {
   const end = S.t + h;
-  const raw = pointerAt(end * 1000);
+  const raw = handAt(end * 1000);
+  if (S.run) {
+    S.down = raw.down;
+    runOff(end);
+    if (!reduced) S.o = eis(end / MOTION.enterS);
+    S.t = end;
+    return;
+  }
   const p = raw.down && !S.down && !grabs(raw) ? { ...raw, down: false } : raw;
   if (p.down && !S.down) {
     // The regrab fault picks up from where the hand let go, not from where the dot is now.
@@ -97,25 +142,35 @@ function step(h) {
     S.rel = null;
     S.vx = S.vy = 0;
   }
+  // FAULT "skip-moves": every second change of the hand's place is ignored, and the dot holds until the next change.
+  if (FAULT === "skip-moves" && p.down && (p.x !== S.seenX || p.y !== S.seenY)) {
+    S.moves++;
+    S.seenX = p.x;
+    S.seenY = p.y;
+    S.skip = S.moves % 2 === 0;
+  }
   if (p.down) {
     const k = FAULT === "no-follow" ? 0 : 1;
+    if (VARIANT === "drift") S.dr += 2 * h * 60;
     const ky = VARIANT === "slider-x" ? 0 : k;
     const late = S.grab.first && end - S.grab.t >= MOTION.aheadAfterS - 1e-9;
     const ahead = FAULT === "jump-ahead" && late ? MOTION.aheadPx : 0;
     const down = FAULT === "minor-jump" && late ? MOTION.aheadPx : 0;
     S.gx = FAULT === "blip" && S.grab.first && Math.round((end - S.grab.t) * 60) === Math.round(MOTION.aheadAfterS * 60) ? MOTION.gridPx : 0;
-    const nx = S.grab.x + k * (p.x - S.grab.px) + ahead, ny = S.grab.y + ky * (p.y - S.grab.py) + down;
+    const nx = S.skip ? S.x : S.grab.x + k * (p.x - S.grab.px) + ahead + S.dr, ny = S.skip ? S.y : S.grab.y + ky * (p.y - S.grab.py) + down;
     if (VARIANT === "springy") { S.tx = nx; S.ty = ny; }
     else {
       if (h > 0) { S.vx = (nx - S.x) / h; S.vy = (ny - S.y) / h; }
       S.x = nx;
       S.y = ny;
     }
+    if (VARIANT === "commit" && nx >= MOTION.commitPx) S.run = { t0: end, x0: nx, done: false };
   } else if (S.down && VARIANT === "springy") {
     // The springy dot settles where the hand let go: its target stays.
   } else if (S.down) {
     const k = FAULT === "zero-release" ? 0 : 1;
     S.rel = { t: S.t, x: S.x, y: S.y, vx: k * S.vx, vy: k * S.vy };
+    S.relAt = S.t;
     if (FAULT === "opacity-overshoot" && S.dimAt === null) S.dimAt = S.t;
   }
   S.down = p.down;
@@ -169,6 +224,7 @@ const drawnY = () => (STEP === "twos" ? S.dy : shown(S.y));
 function draw() {
   dot.style.transform = `translate(${drawnX()}px, ${drawnY()}px)`;
   dot.style.opacity = String(S.o);
+  dot.style.visibility = reported() ? "hidden" : "";
   if (badge) badge.style.transform = `translateY(${S.db}px)`;
 }
 window.__seek = (ms) => {
@@ -181,9 +237,12 @@ window.__seek = (ms) => {
 };
 // Under STEP "grid" or "twos" (or with window.OBJECTS) the dot's box is read from the DOM after draw(), so it is the box
 // of the frame just drawn. A dot faded out is not drawn, and reports a box of 1 by 1. The badge's box is read the same way.
+// VARIANT "commit": once gone, the dot is not drawn and reports a box of 1 by 1 (window.HIDE, and the vanish fault); else it is drawn off screen.
+const blinking = () => FAULT === "blink" && S.relAt !== null && S.t > S.relAt + 1e-6 && S.t < S.relAt + MOTION.blinkS;
+const reported = () => (S.gone && (!!window.HIDE || FAULT === "vanish")) || blinking();
 const boxOf = () => {
   const r = dot.getBoundingClientRect();
-  return S.o <= 0 ? [r.x, r.y, 1, 1] : [r.x, r.y, r.width, r.height];
+  return S.o <= 0 || reported() ? [r.x, r.y, 1, 1] : [r.x, r.y, r.width, r.height];
 };
 const badgeBox = () => { const r = badge.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
 window.__state = () => ({
@@ -197,7 +256,7 @@ draw();
 if (!seekMode) {
   let last = null, raf = 0;
   const hopping = () => S.firstAt !== null && S.t - S.firstAt < MOTION.hops * MOTION.hopS + MOTION.twosS;
-  const busy = () => FAULT === "loop-forever" || S.down || S.rel !== null || !S.still || (badge && hopping()) || (S.dimAt === null ? S.o < 1 : S.t - S.dimAt < MOTION.dimS);
+  const busy = () => FAULT === "loop-forever" || S.down || S.rel !== null || (S.run !== null && !S.run.done) || !S.still || (badge && hopping()) || (S.dimAt === null ? S.o < 1 : S.t - S.dimAt < MOTION.dimS);
   const frame = (now) => {
     const h = last === null ? 0 : Math.min((now - last) / 1000, MOTION.maxStepS);
     last = now;

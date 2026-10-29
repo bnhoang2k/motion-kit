@@ -9,7 +9,7 @@ export interface BarDial {
   path: string;
   value: number;
   unit: string;
-  /** "<kind>.<field>", a key of KNOB_FIELDS. */
+  /** "<kind>.<name>", an entry of kinds/<kind>/dial-set.json. A public knob (a key of KNOB_FIELDS) also needs its dials.json entry. */
   knob: string;
   /** The notes.md row the value belongs to. */
   row: string;
@@ -133,6 +133,7 @@ const isText = (v: unknown): v is string => typeof v === "string" && v.trim() !=
 const isRung = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 4;
 const show = (v: unknown): string => (typeof v === "number" ? String(v) : JSON.stringify(v));
 
+interface DialSetEntry { name?: unknown; unit?: unknown; meaning?: unknown }
 interface DialsEntry { knob?: unknown; bar?: unknown; path?: unknown; value?: unknown; from?: unknown }
 
 
@@ -178,7 +179,7 @@ export function barFileErrors(dir: string, read: (p: string) => string | undefin
  * Checks a bar folder against the bar.json contract and returns every problem (empty when it passes).
  * `dir` and every path given to `read` are repo-relative (for example `bars/x/bar.json` or
  * `kinds/idle/dials.json`); `read` returns undefined for a missing file. It reads the four bar files and the kit
- * files (bars/moments.json, kinds/<kind>/dials.json), and nothing else. `readKit` reads the kit files when they
+ * files (bars/moments.json, kinds/<kind>/dial-set.json, kinds/<kind>/dials.json), and nothing else. `readKit` reads the kit files when they
  * live apart from the bar folder (the CLI reads them from the kit's own folder); it defaults to `read`.
  */
 export function validateBar(dir: string, read: (p: string) => string | undefined, readKit: (p: string) => string | undefined = read): string[] {
@@ -269,8 +270,8 @@ export function validateBar(dir: string, read: (p: string) => string | undefined
       if (!Array.isArray(bar.dials)) p("dials", "must be a list");
       else {
         if (bar.dials.length < 1 || bar.dials.length > 5) p("dials", `needs 1 to 5 entries, got ${bar.dials.length}`);
-        const dialsFiles = new Map<string, DialsEntry[] | undefined>();
-        const dialsList = (file: string): DialsEntry[] | undefined => {
+        const dialsFiles = new Map<string, unknown[] | undefined>();
+        const kitList = (file: string): unknown[] | undefined => {
           if (!dialsFiles.has(file)) {
             let list: unknown;
             try {
@@ -278,7 +279,7 @@ export function validateBar(dir: string, read: (p: string) => string | undefined
             } catch {
               list = undefined;
             }
-            dialsFiles.set(file, Array.isArray(list) ? (list as DialsEntry[]) : undefined);
+            dialsFiles.set(file, Array.isArray(list) ? list : undefined);
           }
           return dialsFiles.get(file);
         };
@@ -296,10 +297,17 @@ export function validateBar(dir: string, read: (p: string) => string | undefined
             else if (typeof onPage !== "number") p(`${where}.path`, `${path} holds ${show(onPage)} in the MOTION block, not a number`);
             else if (!same(onPage, value)) p(`${where}.value`, `${value}, but the MOTION block holds ${onPage}`);
           }
-          if (!Object.hasOwn(KNOB_FIELDS, knob)) return void p(`${where}.knob`, `unknown knob "${knob}"`);
+          // The kind's dial set names every dial and what it means. Only a public knob also has a dials.json entry.
+          const kind = knob.split(".")[0] ?? "";
+          if (!(KINDS as readonly string[]).includes(kind)) return void p(`${where}.knob`, `unknown knob "${knob}"`);
+          const setFile = `kinds/${kind}/dial-set.json`;
+          const set = kitList(setFile) as DialSetEntry[] | undefined;
+          if (!set) return void p(where, `cannot read ${setFile}`);
+          if (!set.some((e) => isObj(e) && e.name === knob)) return void p(`${where}.knob`, `unknown knob "${knob}": not in ${setFile}`);
+          if (!Object.hasOwn(KNOB_FIELDS, knob)) return;
           // The dials.json entry with the same bar and knob. A `from` map holds the raw page value per path.
-          const file = `kinds/${knob.split(".")[0]}/dials.json`;
-          const list = dialsList(file);
+          const file = `kinds/${kind}/dials.json`;
+          const list = kitList(file) as DialsEntry[] | undefined;
           if (!list) return void p(where, `cannot read ${file}`);
           const entry = list.find((e) => e.bar === slug && e.knob === knob);
           if (!entry) return void p(where, `${file} has no ${knob} entry for ${slug}`);

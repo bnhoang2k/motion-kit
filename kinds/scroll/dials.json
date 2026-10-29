@@ -3,7 +3,7 @@
     "knob": "scroll.smooth",
     "value": 0.166666666667,
     "unit": "s",
-    "bar": "04-scale-as-camera",
+    "bar": null,
     "path": ["lambda"],
     "from": { "lambda": 6.0 },
     "convert": "inverse",
@@ -14,11 +14,21 @@
     "knob": "scroll.maxStep",
     "value": 0.05,
     "unit": "s",
-    "bar": "04-scale-as-camera",
+    "bar": null,
     "path": ["maxStepMs"],
     "from": { "maxStepMs": 50 },
     "convert": "msToS",
     "row": "Z1",
     "base": true
+  },
+  {
+    "knob": "scroll.smooth",
+    "value": 0.166666666667,
+    "unit": "s",
+    "bar": null,
+    "path": ["scroll.ratePerSec"],
+    "from": { "scroll.ratePerSec": 6 },
+    "convert": "inverse",
+    "row": "C1"
   }
 ]

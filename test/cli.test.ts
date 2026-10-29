@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { run, type CliIo } from "../src/cli/run.ts";
+import { baseBar } from "./knob-base.ts";
 import type { SheetOptions } from "../src/gate/sheet.ts";
 
 function io(files: Record<string, string> = {}) {
@@ -196,9 +198,9 @@ describe("motion-kit CLI", () => {
 
     it("prints the distance lines, then the verdict, and exits by the verdict", async () => {
       const t = io({ "/proj/page.html": PAGE });
-      const gate = async () => ({ status: "failed" as const, failures: ["reverses: p stays"], distances: ["idle.period 6.0 s, 50% above base (31-breath-pacer: 4.0 s)"] });
+      const gate = async () => ({ status: "failed" as const, failures: ["reverses: p stays"], distances: ["idle.period 6.0 s, 50% above base 4.0 s"] });
       expect(await run(["gate", "page.html"], t.api, { playwrightOrNull: opens, kindGate: gate })).toBe(1);
-      expect(t.out.join("")).toBe("idle.period 6.0 s, 50% above base (31-breath-pacer: 4.0 s)\nfailed: 1\n");
+      expect(t.out.join("")).toBe("idle.period 6.0 s, 50% above base 4.0 s\nfailed: 1\n");
       expect(t.err.join("")).toBe("reverses: p stays\n");
     });
 
@@ -294,9 +296,11 @@ describe("the motion-kit command on disk", () => {
     expect(cli(["validate", "--in", "test/fixtures"])).toEqual({ code: 2, out: "", err: `Cannot read ${path.join(ROOT, "test/fixtures")}.\n` });
   });
 
-  it("validate-bar reads the folder from the working folder and the kit files from the kit", () => {
-    const real = path.join(ROOT, "bars/31-breath-pacer");
+  // A kit bar is needed here, one kinds/idle/dials.json names. The case is skipped when that bar has no folder.
+  const slug = baseBar("idle.period");
+  const real = path.join(ROOT, "bars", slug ?? "");
+  it.skipIf(slug === null || !existsSync(real))("validate-bar reads the folder from the working folder and the kit files from the kit", () => {
     expect(cli(["validate-bar", "."], real)).toEqual({ code: 0, out: ". is valid.\n", err: "" });
-    expect(cli(["validate-bar", "31-breath-pacer"], path.join(ROOT, "bars"))).toEqual({ code: 0, out: "31-breath-pacer is valid.\n", err: "" });
+    expect(cli(["validate-bar", slug!], path.join(ROOT, "bars"))).toEqual({ code: 0, out: `${slug} is valid.\n`, err: "" });
   });
 });

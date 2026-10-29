@@ -3,8 +3,9 @@ import path from "node:path";
 import type { BarJson } from "../core/bar.ts";
 import { checkTrace, EVENT_MS, type TraceJson } from "../core/trace.ts";
 import type { KindName } from "../core/types.ts";
+import { extentsOf } from "./extents.ts";
 import { openPage, type Frame, type GatePage } from "./harness.ts";
-import { reducedMotion, type RuleContext } from "./kind-gate.ts";
+import { checkedExtents, reducedMotion, type RuleContext } from "./kind-gate.ts";
 import { emptySelector, missingChannel, noHook, realClockGap, suddenJumps, zeroFrames } from "./self-checks.ts";
 import { driveInput } from "./synthetic-input.ts";
 import { runChecks, type Check, type Verdict } from "./verdict.ts";
@@ -130,7 +131,7 @@ export async function barGate(dir: string): Promise<Verdict> {
   const selectors = [...new Set(trace.channels.flatMap((c) => c.selectors))];
   // reducedMotion reads the trace's whole span, not the kind gate's 3 s: a bar's input may start late.
   const stepped = trace.stepped ?? [];
-  const ctx: RuleContext = { kind: bar.kinds[0] as KindName, input, cuts, spanMs, stepped };
+  const ctx: RuleContext = { kind: bar.kinds[0] as KindName, input, cuts, spanMs, stepped, tweens: trace.tweens ?? [], extents: extentsOf(trace) };
 
   let opened: Promise<GatePage> | undefined;
   const page = () => (opened ??= openPage(file, input ? { input: input.samples } : {}));
@@ -148,7 +149,7 @@ export async function barGate(dir: string): Promise<Verdict> {
     events: async () => compareEvents(await page(), trace, spanMs),
     // The page reads raw: the trace and events compare the drawings the original held, and suddenJumps judges a
     // stepped value at its drawing rate.
-    suddenJumps: async () => suddenJumps(await page(), reads, cuts, spanMs, input, stepped, ctx.kind === "scroll"),
+    suddenJumps: async () => suddenJumps(await page(), reads, cuts, spanMs, input, stepped, ctx.kind === "scroll", [], undefined, await checkedExtents(await page(), ctx)),
     coverage: async () => {
       await spanFrames();
       return coverage(await page(), [...selectors, ...(bar.cover ?? [])]);

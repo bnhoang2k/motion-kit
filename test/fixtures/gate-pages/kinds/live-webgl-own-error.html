@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>live: webgl own-error</title>
+<style>body { margin: 0 } #dot { position: fixed; left: 620px; top: 340px; width: 40px; height: 40px; border-radius: 50%; background: #333 } #gl { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0 }</style>
+</head>
+<body>
+<div id="dot"></div>
+<canvas id="gl" width="1" height="1"></canvas>
+<script>
+// The page clears a WebGL canvas and reads a pixel back, which makes the browser write its GL driver notes in the first
+// WebGL context of a fresh browser. It also causes a GL error and writes it as a console error.
+const gl = document.getElementById("gl").getContext("webgl");
+gl.clearColor(0.2, 0.2, 0.2, 1);
+gl.clear(gl.COLOR_BUFFER_BIT);
+gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+gl.enable(0);
+console.error("GL error " + gl.getError());
+</script>
+<script>window.FAULT = "";</script>
+<script src="live.js"></script>
+</body>
+</html>

@@ -7,17 +7,18 @@ import { kitRoot, readTextFile } from "../core/kit-root.ts";
 import { audit, literalExemption, type PageScript } from "./audit.ts";
 import { FRAME_MS, openPage, sleep, type Frame, type GatePage, type InputSamples, type OpenOptions } from "./harness.ts";
 import { drawnRead } from "./drawn.ts";
+import { checkExtents, extentsOf, membershipSteps, type Extents } from "./extents.ts";
 import type { LeadWindow } from "./leads.ts";
 import { checkObjects, objectOf } from "./objects.ts";
 import { heldPoses, poses } from "./poses.ts";
-import { drawingJumps, noHook, realClockGap, roundLengths, zeroFrames } from "./self-checks.ts";
+import { drawingJumps, noHook, realClockGap, roundLengths, suddenJumps, zeroFrames } from "./self-checks.ts";
 import { driveInput, INPUT_START_MS, inputChanges, inputSpan, syntheticInput } from "./synthetic-input.ts";
 import { runChecks, type Check, type Verdict } from "./verdict.ts";
-import { HOLD_MS, lastMoveMs, rangeOf, REST_FRAMES, series, stillEps, stillTol, valueNames } from "./series.ts";
+import { HOLD_MS, lastMoveMs, movedAtSpeedBefore, neverFasterThan, rangeOf, REST_FRAMES, sameSteadyStep, series, steadyStep, stillEps, stillTol, unitFloor, valueNames } from "./series.ts";
 import { causedWindows, causesOf, repeatCause, type Cause } from "./causes.ts";
-import { periodicOf, PERIODIC_SCAN_MS, type Periodic } from "./periodic.ts";
+import { firstMoveMs, LOOP_LEAD_MS, LOOP_PERIOD_MS, periodicOf, PERIODIC_SCAN_MS, type Periodic } from "./periodic.ts";
 
-export { rangeOf, REST_FRAMES, series, stillEps, valueNames };
+export { rangeOf, REST_FRAMES, series, stillEps, unitFloor, valueNames };
 
 /**
  * Gate B, the kind gate. It needs no trace: it runs the static audit, then the rules every
@@ -39,12 +40,22 @@ export type RuleContext = {
   /**
    * How far the `?seek` frames reach, in ms. With the synthetic input: SPAN_MS, plus how long it waits for the page's
    * load motion. With a recorded input: SPAN_MS, the last trace row, or the last input sample plus SETTLE_MS, the latest.
+   * A live or scroll page is also read to SETTLE_MS past the end of the sequence the input starts (liveSpan), however
+   * long that is, up to SEQUENCE_SCAN_MS past the input.
    */
   spanMs?: number;
   /** What starts the motion on a choreo or sim page (causesOf the input). The other kinds do not read it. */
   causes?: Cause[];
   /** Values a copied bar's trace.json marks as held in drawings on purpose. The page reads them as their pose lines. */
   stepped?: string[];
+  /** Values a copied bar's trace.json marks as a control's keyframe tween beside the bodies. A sim page's `energyFalls` leaves them out. */
+  tweens?: string[];
+  /**
+   * Values a copied bar's trace.json declares as an edge of many moving parts, by value name, with the edge and the parts
+   * (extents.ts). The `extents` rule guards each one; the envelope's pulse attack and the `overshoot` rule leave out
+   * those whose guard passes.
+   */
+  extents?: Extents;
   /**
    * Where rules put notes: information lines that never change the verdict. kindGate makes one per run and copies it
    * into KindVerdict `notes`.
@@ -57,7 +68,7 @@ export type KindVerdict = Verdict & { kind: KindName | null; distances: string[]
 
 /** A move a cut ends sooner than this after it starts is cut off: its pops are not judged. */
 const CUT_OFF_MS = 100;
-/** How far the `?seek` frames reach, in ms, when the input starts INPUT_START_MS in. */
+/** The least the `?seek` frames reach, in ms, when the input starts INPUT_START_MS in. A sequence that runs on is read to its end (liveSpan, causedSpan). */
 export const SPAN_MS = 3000;
 /** An idle page's rules read this many periods of its longest designed loop, after its lead-in. */
 export const IDLE_PERIODS_READ = 2;
@@ -77,10 +88,6 @@ export function inputPastSpan(input: InputSamples | null, spanMs: number): strin
   const { end } = inputSpan(input);
   return end > spanMs + 1e-6 ? [`span: the input runs to ${round(end)} ms, past the ${round(spanMs)} ms the rules read`] : [];
 }
-
-/** A value's tolerance floor: its unit's floor (TOLERANCE_FLOORS), or 1% of its range for a unit with none. */
-export const unitFloor = (unit: string | undefined, range: number): number =>
-  unit !== undefined && Object.hasOwn(TOLERANCE_FLOORS, unit) ? TOLERANCE_FLOORS[unit]! : 0.01 * range;
 
 /** Kinds whose motion starts from causes: their shared rules read the caused windows and leave loops out. */
 export const CAUSED_KINDS: readonly KindName[] = ["choreo", "sim"];
@@ -167,24 +174,47 @@ export async function drive(live: GatePage, ctx: RuleContext): Promise<void> {
   if (ctx.input) await driveInput(live, ctx.input);
 }
 
+/** The page is at rest when each value but its loops changes by no more than its floor over this long. */
+export const REST_WINDOW_MS = 1000;
+
 /**
- * Polls a live page's values every 50 ms until no value has moved for 150 ms, and returns the
- * page's clock (`performance.now()`) at that point. Returns null when the page is still moving
- * after `timeoutMs`. Values named in `ignore` (loops) are not read.
+ * Polls a live page's values every 50 ms until it is at rest, and returns the page's clock (`performance.now()`) when it
+ * came to rest, or null when it is still moving after `timeoutMs`. Values named in `ignore` (loops) are not read.
+ *
+ * It came to rest when no value moved more than LIVE_STILL between two reads 50 ms apart for 150 ms (the clock at the third
+ * quiet read is what the rAF count starts from), and the page is at rest only when, over the last REST_WINDOW_MS, each
+ * value's total change is within `floors[name]` (LIVE_STILL for a value with no floor): a creep too slow for the first
+ * test to see (0.001 in 50 ms is 0.02 a second) is still moving. A value a read lacks is moving.
  */
-export async function waitForRest(live: GatePage, timeoutMs = 5000, ignore: Set<string> = new Set()): Promise<number | null> {
+export async function waitForRest(live: GatePage, timeoutMs = 5000, ignore: Set<string> = new Set(), floors: Record<string, number> = {}): Promise<number | null> {
   const end = performance.now() + timeoutMs;
   let prev: Record<string, number> | null = null;
   let quiet = 0;
+  let restAt: number | null = null;
+  const reads: { at: number; values: Record<string, number> }[] = [];
   while (performance.now() < end) {
+    const at = performance.now();
     const values = Object.fromEntries(Object.entries((await live.state()).values).filter(([k]) => !ignore.has(k)));
     const moved = prev === null || Object.keys({ ...values, ...prev }).some((k) => !(Math.abs((values[k] ?? Number.NaN) - (prev![k] ?? Number.NaN)) <= LIVE_STILL));
     quiet = moved ? 0 : quiet + 1;
+    if (moved) restAt = null;
+    else if (quiet >= 3 && restAt === null) restAt = await live.page.evaluate(() => performance.now());
     prev = values;
-    if (quiet >= 3) return live.page.evaluate(() => performance.now());
+    reads.push({ at, values });
+    while (reads.length > 1 && reads[1]!.at <= at - REST_WINDOW_MS) reads.shift();
+    if (restAt !== null && at - reads[0]!.at >= REST_WINDOW_MS - 1e-6 && settledOver(reads, floors)) return restAt;
     await sleep(50);
   }
   return null;
+}
+
+/** Whether every value in `reads` stays within its floor (LIVE_STILL with none) from its lowest read to its highest. */
+function settledOver(reads: { values: Record<string, number> }[], floors: Record<string, number>): boolean {
+  const names = new Set(reads.flatMap((r) => Object.keys(r.values)));
+  return [...names].every((n) => {
+    const vs = reads.map((r) => r.values[n] ?? Number.NaN);
+    return Math.max(...vs) - Math.min(...vs) <= (floors[n] ?? LIVE_STILL);
+  });
 }
 
 // ---- the rules for every kind ---------------------------------------------------------------
@@ -204,6 +234,9 @@ type Onset = { name: string; i: number; ms: number; rising: boolean };
 
 /** One 1/60 s frame that covers more than this share of a smooth start's whole change is a pop. */
 const POP_SHARE = 0.5;
+
+/** A chain of moves whose every leg lasts no more than this many frames is a flick, not a swing: its frames are judged for a pop. */
+const FLICK_FRAMES = 2;
 
 /**
  * Every place a value starts to move after holding still for 2 frame steps (the page counts as
@@ -235,8 +268,9 @@ function onsets(frames: Frame[], windows: [number, number][], cuts: number[]): O
 
 /**
  * An onset's frames until the value rests, or until a cut (what follows a cut is new motion, which may jump): its
- * whole change (the farthest it goes, either way, so an anticipation dip before the move does not count as the move)
- * and where it ends.
+ * whole change (the farthest it goes, either way, so an anticipation dip before the move does not count as the move),
+ * its swing (the highest value less the lowest, over those frames), where it ends, and whether it ends at rest (`held`:
+ * the value held still for REST_FRAMES steps, not cut and not out of frames).
  */
 function segment(frames: Frame[], o: Onset, eps: number, cuts: number[] = []) {
   const v = series(frames, o.name);
@@ -253,9 +287,13 @@ function segment(frames: Frame[], o: Onset, eps: number, cuts: number[] = []) {
     end = j + 1;
   }
   let peak = o.i;
-  for (let j = o.i; j <= end; j++) if (Math.abs(v[j]! - v[o.i]!) > Math.abs(v[peak]! - v[o.i]!)) peak = j;
+  let [lo, hi] = [v[o.i]!, v[o.i]!];
+  for (let j = o.i; j <= end; j++) {
+    if (Math.abs(v[j]! - v[o.i]!) > Math.abs(v[peak]! - v[o.i]!)) peak = j;
+    if (Number.isFinite(v[j]!)) [lo, hi] = [Math.min(lo, v[j]!), Math.max(hi, v[j]!)];
+  }
   const dir = v[peak]! >= v[o.i]! ? 1 : -1;
-  return { v, dir, end, peak, cut, total: dir * (v[peak]! - v[o.i]!), left: dir * (v[end]! - v[o.i]!) };
+  return { v, dir, end, peak, cut, held: !cut && still >= REST_FRAMES, range: hi - lo, total: dir * (v[peak]! - v[o.i]!), left: dir * (v[end]! - v[o.i]!) };
 }
 
 /**
@@ -294,11 +332,64 @@ async function drawingAttack(page: GatePage, o: Onset, peakMs: number, dir: numb
 }
 
 /**
- * What is wrong with one onset: a pop, a pulse attack out of bounds, or a fade that rises. An onset whose whole
- * change is below its unit's tolerance floor (TOLERANCE_FLOORS: 0.5 px, 0.002 scale, 0.01 opacity, ...) is too small
- * to see, so it has no problem: a spring or a smoothed scroll that snaps to rest at the end of a still stretch.
+ * The chain of moves that the onset at frame `i` belongs to, and whether it comes back to where it started and holds
+ * there. A chain is a row of moves with no hold of HOLD_MS or more between them: it reaches back from `i` to `first`
+ * and on from `end`, the frame the onset's own segment ended at (a rest of REST_FRAMES steps), to `last`, while the
+ * value moves again within HOLD_MS. It comes home when it ends within OVERSHOOT_SHARE of its farthest reach (at least
+ * `floor`) of where it started, held there for REST_FRAMES steps.
  */
-async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: string | undefined, isLoop: (o: Onset) => Promise<boolean>, stepped: boolean, caused = false, cuts: number[] = [], isDesigned: (o: Onset) => Promise<boolean> = isLoop): Promise<string[]> {
+function chainOf(v: number[], i: number, end: number, eps: number, floor: number): { first: number; last: number; home: boolean } {
+  const holdSteps = Math.ceil(HOLD_MS / FRAME_MS - 1e-6);
+  let first = i;
+  for (let k = i, still = 0; k > 0 && still < holdSteps; k--) {
+    if (Math.abs(v[k]! - v[k - 1]!) > eps) [first, still] = [k - 1, 0];
+    else still++;
+  }
+  let last = end - REST_FRAMES;
+  let held = true;
+  for (let k = end, still = REST_FRAMES; still < holdSteps; k++) {
+    if (k + 1 >= v.length) {
+      held = false;
+      break;
+    }
+    if (Math.abs(v[k + 1]! - v[k]!) > eps) [last, still] = [k + 1, 0];
+    else still++;
+  }
+  if (!held) return { first, last, home: false };
+  const reach = Math.max(...v.slice(first, last + 1).map((x) => Math.abs(x - v[first]!)));
+  return { first, last, home: Math.abs(v[last]! - v[first]!) <= Math.max(floor, OVERSHOOT_SHARE * reach) };
+}
+
+/**
+ * The longest leg of `name` between `fromMs` and `toMs`, in ms, read every eighth of a frame: a leg is a run of
+ * sub-steps that move the value (by more than an eighth of `eps`) the one way. A hold or a turn ends it.
+ */
+async function longestLegMs(page: GatePage, name: string, fromMs: number, toMs: number, eps: number): Promise<number> {
+  const dt = FRAME_MS / 8;
+  const x = (await page.frames(Math.max(0, fromMs), toMs, dt)).map((f) => f.values[name] ?? Number.NaN);
+  let [best, run, dir] = [0, 0, 0];
+  for (let k = 1; k < x.length; k++) {
+    const d = x[k]! - x[k - 1]!;
+    const s = Math.abs(d) > eps / 8 ? Math.sign(d) : 0;
+    [run, dir] = s !== 0 && s === dir ? [run + 1, dir] : [s !== 0 ? 1 : 0, s];
+    best = Math.max(best, run);
+  }
+  return best * dt;
+}
+
+/**
+ * What is wrong with one onset: a pop (against its whole change), a pulse attack out of bounds, or a fade that rises.
+ * The pulse and fade tests keep the whole change. A move that comes back to where it started and holds there (a shake,
+ * a bob) has no pop test here: its frames are part of a swing that goes both ways, so a frame is a share of the swing
+ * that no whole change measures, and the suddenJumps rule reads the motion between its frames instead. A value that is
+ * an `extent` (a checked edge of many moving parts) has no attack bound: it turns when another part becomes the extreme
+ * one, which is no flash. Its `frames` carry the edge as the parts drawn through it moved it (`byMotion`): in a step that
+ * changes who is in its union (a part comes back or goes gone) the jump of who is in is left out, so a part that jumps in
+ * that step is a pop, as against the motion alone, and the one that came or went is not. An onset whose whole
+ * change is below its unit's tolerance floor (TOLERANCE_FLOORS: 0.5 px, 0.002 scale, 0.01 opacity, ...) is too
+ * small to see, so it has no problem: a spring or a smoothed scroll that snaps to rest at the end of a still stretch.
+ */
+async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: string | undefined, isLoop: (o: Onset) => Promise<boolean>, stepped: boolean, caused = false, cuts: number[] = [], isDesigned: (o: Onset) => Promise<boolean> = isLoop, extent = false): Promise<string[]> {
   const eps = stillTol(series(frames, o.name));
   const seg = segment(frames, o, eps, cuts);
   const at = `${o.name} at ${round(o.ms)} ms`;
@@ -308,10 +399,24 @@ async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: st
   // A stepped value's frames here are its pose line; its pops are judged at its drawing rate (envelope). A move a cut
   // ends within CUT_OFF_MS of its start is cut off, as one the frames end: its whole change is not on screen.
   const cutOff = seg.cut && frames[seg.end]!.ms - o.ms < CUT_OFF_MS - 1e-6;
+  // A move that comes back to where it started and holds there (the "home" test of judgeChain), as a shake or a bob, has
+  // no pop test while it swings: the suddenJumps rule reads its motion between frames. Nor has a move in a chain of
+  // moves that holds for less than HOLD_MS between them and comes home as a whole (a tada, a bounce with a pause at its
+  // top). A chain whose every leg lasts FLICK_FRAMES frames or less is a flick, and its frames are judged as any move's:
+  // against its whole swing (the move itself) or its whole change (a chain); a smooth leg that short is no cusp for
+  // suddenJumps to find, and only the frame it lands in tells it apart from a snap. Every other move, a start with an
+  // anticipation dip included, is judged against its whole change.
+  const chain = chainOf(seg.v, o.i, seg.end, eps, floor);
+  const segHome = seg.held && Math.abs(seg.v[seg.end]! - seg.v[o.i]!) <= Math.max(floor, OVERSHOOT_SHARE * seg.total);
+  const home = segHome || chain.home;
+  const popBase = segHome ? seg.range : seg.total;
+  let flick: boolean | undefined;
   for (let j = o.i; j < seg.end && !stepped && !cutOff; j++) {
     const step = Math.abs(seg.v[j + 1]! - seg.v[j]!);
-    if (step > POP_SHARE * seg.total * (1 + 1e-9)) {
-      out.push(`${at} covers ${Math.round((step / seg.total) * 100)}% of its whole change in the one frame after ${round(frames[j]!.ms)} ms; that is a pop`);
+    if (step > POP_SHARE * popBase * (1 + 1e-9)) {
+      if (home) flick ??= (await longestLegMs(page, o.name, frames[chain.first]!.ms - FRAME_MS, frames[Math.max(chain.last, seg.end)]!.ms + FRAME_MS, eps)) <= FLICK_FRAMES * FRAME_MS + 1e-6;
+      if (home && !flick) continue;
+      out.push(`${at} covers ${Math.round((step / popBase) * 100)}% of its whole change in the one frame after ${round(frames[j]!.ms)} ms; that is a pop`);
       break;
     }
   }
@@ -319,7 +424,7 @@ async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: st
   // A stepped value's pose line reaches its peak drawing one drawing late: whether it peaks in time is read on its drawings.
   const peaksIn = stepped ? await drawingAttack(page, o, frames[seg.peak]!.ms, seg.dir, eps) : frames[seg.peak]!.ms - o.ms;
   const pulse = seg.left <= PULSE_RETURN * seg.total && (caused || peaksIn <= PULSE_PEAK_MS);
-  if (pulse && !caused && !(await isLoop(o))) {
+  if (pulse && !caused && !extent && !(await isLoop(o))) {
     const ms = await pulseAttack(page, o, frames[seg.peak]!.ms, seg.dir, eps, stepped);
     if (ms < ATTACK_MS[0] || ms > ATTACK_MS[1]) out.push(`${at} is a pulse that peaks ${Math.round(ms)} ms after it starts; a pulse's attack is ${ATTACK_MS[0]} to ${ATTACK_MS[1]} ms`);
   } else if (!pulse && unit === "opacity" && seg.dir < 0 && !(await isDesigned(o))) {
@@ -340,30 +445,130 @@ const evenly = (times: number[]) => {
   return Math.max(...gaps) - Math.min(...gaps) <= FRAME_MS + 1e-6;
 };
 
+/** The last of `times` is within one period (the last gap), plus a frame, of `endMs`: the repeats run to the end of the frames read. */
+const repeatsTo = (times: number[], endMs: number) => times.length > 1 && endMs - times[times.length - 1]! <= times[times.length - 1]! - times[times.length - 2]! + FRAME_MS + 1e-6;
+
 /**
- * The values in `frames` that loop: a value that starts the same way (an onset in the same
- * direction) at a fixed period, as the envelope's loop test reads it, or a value that never holds
- * still and peaks at the same height (within 2% of its range) at a fixed period, still moving at the
- * end. A damped spring's peaks shrink, so it is no loop.
+ * Whether the loop sort takes a value that moves at one steady speed for a loop. With a first cause after load (`causeMs`
+ * above 0: a tap on a choreo or sim page, the first input sample on a live or scroll page) the value must move the same
+ * with no input: `quiet`, the page's frames read with no input, ends at the same steady speed, so the cause did not start
+ * it (a marquee that starts a little after load, one that eases in, a strip a hand holds and lets go), and `quiet` itself must
+ * hold that speed from the end of its lead-in, as a value with no cause must: a breath that turns into a creep from load is no
+ * loop on a page that also answers a tap. A fling clamped
+ * to a minimum speed, a breath that a creep follows, a tween with no clamp are at rest or breathing in `quiet`, whichever way the
+ * breath was going when the cause came. Without `quiet` the value itself must have been moving at that speed in the frame
+ * before the cause (movedAtSpeedBefore). With no cause (an idle page, or a page that starts on load) it must hold that speed
+ * from the end of its lead-in, LOOP_LEAD_MS after it first moves, to the end of the frames: a ramp up to the speed is that
+ * lead-in, a breath that turns into a creep later is not.
  */
-export function loopNames(frames: Frame[], windows: [number, number][], cuts: number[]): Set<string> {
+function steadyLoop(frames: Frame[], name: string, causeMs: number | undefined, quiet: Frame[] | undefined): boolean {
+  if (causeMs !== undefined && causeMs > 0) {
+    const step = steadyStep(frames, name);
+    if (step === null) return false;
+    return quiet ? sameSteadyStep(quiet, frames, name, step) && holdsFromLeadIn(quiet, name) : movedAtSpeedBefore(frames, name, causeMs, step);
+  }
+  return holdsFromLeadIn(frames, name);
+}
+
+/** Whether `name` holds one steady speed from the end of its lead-in, LOOP_LEAD_MS after it first moves, to the end of `frames`. */
+function holdsFromLeadIn(frames: Frame[], name: string): boolean {
+  const from = firstMoveMs(frames, name);
+  return from !== null && steadyStep(frames, name, from + LOOP_LEAD_MS) !== null;
+}
+
+/** Whether `drift`, how far a loop moves on over the read, is more than its unit's `floor`: a loop comes back to where it was. */
+const drifted = (drift: number, floor: number) => drift > floor + 1e-9;
+
+/**
+ * The values in `frames` that loop by their onsets or by one steady speed: the two branches of the loop sort that read
+ * the frames alone (loopSet adds the values periodOf finds). A value that starts the same way (an onset in the same
+ * direction) 3 or more times at a fixed period of LOOP_PERIOD_MS's lower bound or more, as the envelope's loop test reads
+ * it, and keeps its range each period: every period's swing is as large as the first's, and, but for a value in deg
+ * (a hand that ticks round), it starts and tops out at the same levels: each period's levels and swing are the first's,
+ * within the unit floor (and what a crest known only to a frame can be off). A per-period step in px, scale or opacity (a
+ * staircase) or a swing that grows each beat is no loop, however small: the drift of the whole read is held to the floor. The
+ * starts repeat to the end: the last start is within one period, plus a frame, of the last frame. A piece that steps
+ * or breathes a few times and holds stops before the end, so it is no loop. A value that moves at one steady speed over
+ * the last 500 ms (steadyStep: a marquee, a strip that drifts) is a loop too, whatever it did before a hand held it or
+ * eased it back to its drift. `causeMs` is when the first cause starts: a tap on a choreo or sim page, the first input
+ * sample on a live or scroll page (0 or none for a page with no input, or that starts on load). With a cause the steady
+ * value must move the same in `quiet`, the frames read with no input; with none it must hold that speed from the end of
+ * its lead-in (steadyLoop). A value that starts at a cause and never stops (a tween with no clamp, a body with no friction, a fling
+ * clamped to a minimum speed) looks the same at the end of the read, and is a fault the span and rest rules must still see.
+ */
+export function loopNames(frames: Frame[], windows: [number, number][], cuts: number[], causeMs?: number, units: Record<string, string> = {}, quiet?: Frame[]): Set<string> {
   const out = new Set<string>();
   const os = onsets(frames, windows, cuts);
   for (const name of valueNames(frames)) {
-    for (const rising of [true, false]) if (evenly(os.filter((o) => o.name === name && o.rising === rising).map((o) => o.ms))) out.add(name);
+    for (const rising of [true, false]) {
+      const mine = os.filter((o) => o.name === name && o.rising === rising);
+      const starts = mine.map((o) => o.ms);
+      if (evenly(starts) && starts[1]! - starts[0]! >= LOOP_PERIOD_MS[0] - FRAME_MS && repeatsTo(starts, frames[frames.length - 1]!.ms) && holdsEachPeriod(frames, name, mine, units[name])) out.add(name);
+    }
     if (out.has(name)) continue;
-    const v = series(frames, name);
-    const range = rangeOf(v);
-    const eps = stillEps(range);
-    const n = v.length;
-    if (n < 2 + REST_FRAMES || !(Math.abs(v[n - 1]! - v[n - 2]!) > eps)) continue;
-    const peaks: number[] = [];
-    for (let i = 1; i + 1 < n; i++) if (v[i]! > v[i - 1]! + eps && v[i]! >= v[i + 1]!) peaks.push(i);
-    const tail = peaks.slice(-LOOP_STARTS - 1);
-    const heights = tail.map((i) => v[i]!);
-    if (tail.length >= LOOP_STARTS && evenly(tail.map((i) => frames[i]!.ms)) && Math.max(...heights) - Math.min(...heights) <= 0.02 * range) out.add(name);
+    // A value that moves at one steady speed to the end (a marquee, a strip that drifts) has no onsets.
+    if (steadyLoop(frames, name, causeMs, quiet)) out.add(name);
   }
   return out;
+}
+
+/**
+ * Whether the value `name` keeps its swing each period between the onsets `starts`: each period's range (its highest
+ * frame less its lowest) matches the first period's, and, but for a value in deg, so do its lowest and highest frames,
+ * so the value starts each period where it started the last. The levels are compared across the read, the last period
+ * against the first (every period against the first), so a sub-floor change each period that adds up fails; each match
+ * is within the unit's floor, and a crest known only to a frame can be off by half the bend of the frames at it. (A period's change is judged with the same test as a periodic loop's, drifted.)
+ */
+function holdsEachPeriod(frames: Frame[], name: string, starts: Onset[], unit: string | undefined): boolean {
+  const v = series(frames, name);
+  const periods = starts.slice(1).map((o, k) => v.slice(starts[k]!.i, o.i + 1));
+  const floor = unitFloor(unit, rangeOf(v));
+  /**
+   * How far the crest the frame at `at` stands for can be above (or below) it: half the bend of the frames there (the
+   * second difference), as a smooth crest sampled at any phase is within an eighth of it and a corner within a half. The
+   * frame step beside it where the period's frames end.
+   */
+  const beside = (p: number[], at: number) =>
+    at > 0 && at + 1 < p.length ? Math.abs(p[at - 1]! - 2 * p[at]! + p[at + 1]!) / 2 : Math.max(Math.abs(p[at]! - (p[at - 1] ?? p[at]!)), Math.abs(p[at]! - (p[at + 1] ?? p[at]!)));
+  /** ...for a level held for more than a frame, its smallest: the hold is known to the frame between two like it. */
+  const besideLevel = (p: number[], level: number) => Math.min(...p.map((x, at) => (x === level ? beside(p, at) : Number.POSITIVE_INFINITY)));
+  const levels = periods.map((p) => {
+    const [lo, hi] = [Math.min(...p), Math.max(...p)];
+    return { lo, hi, loBy: besideLevel(p, lo), hiBy: besideLevel(p, hi) };
+  });
+  const first = levels[0]!;
+  const off = (get: (l: (typeof levels)[number]) => number, by: (l: (typeof levels)[number]) => number) => levels.some((l) => drifted(Math.abs(get(l) - get(first)) - by(l) - by(first), floor));
+  const swing = !off((l) => l.hi - l.lo, (l) => l.loBy + l.hiBy);
+  return swing && (unit === "deg" || (!off((l) => l.lo, (l) => l.loBy) && !off((l) => l.hi, (l) => l.hiBy)));
+}
+
+/**
+ * The frames of `page` read with no input, as far as `frames` reach, when the loop sort needs them: the page plays input, it
+ * has a first cause after load (`causeMs`), and a value moves at one steady speed to the end (steadyLoop asks whether it
+ * moves so with no input too). One more page open, and only then. Otherwise undefined.
+ */
+async function quietFrames(page: GatePage, frames: Frame[], causeMs: number | undefined): Promise<Frame[] | undefined> {
+  if (causeMs === undefined || !(causeMs > 0) || !Array.isArray(page.options?.input) || page.options.input.length === 0) return undefined;
+  if (!valueNames(frames).some((n) => steadyStep(frames, n) !== null)) return undefined;
+  const { input: _input, steppedInputRaw: _raw, ...rest } = page.options;
+  const quiet = await openPage(page.file, rest);
+  try {
+    return await quiet.frames(0, frames[frames.length - 1]!.ms);
+  } finally {
+    await quiet.close();
+  }
+}
+
+/**
+ * The loops among the values of `frames`: loopNames' (onsets, steady speed) and every value periodicFor finds. This is
+ * the one sort every rule reads (rolesOf), and the one that finds where a sequence ends (causedSpan). With a first cause
+ * the steady speeds are judged against the page read with no input (quietFrames).
+ */
+export async function loopSet(page: GatePage, frames: Frame[], cuts: number[], causeMs?: number): Promise<Set<string>> {
+  const { units } = await page.state();
+  const loops = loopNames(frames, [], cuts, causeMs, units, await quietFrames(page, frames, causeMs));
+  for (const name of valueNames(frames)) if (!loops.has(name) && (await periodicFor(page, name, units[name])) !== null) loops.add(name);
+  return loops;
 }
 
 /** What the choreo and sim rules do with a value: a loop may run forever, a position (px or deg) is a body, the rest are other. */
@@ -371,16 +576,16 @@ export type Role = "loop" | "position" | "other";
 const roleMemo = new WeakMap<GatePage, Promise<Map<string, Role>>>();
 
 /**
- * Each value's role, read once per page from its frames over LOOP_SCAN_MS with the gate's input:
- * loopNames finds the loops, and a value in px or deg that is no loop is a position.
+ * Each value's role, read once per page from its frames over LOOP_SCAN_MS (a choreo or sim page: loopScanEnd) with the gate's input:
+ * loopSet finds the loops, and a value in px or deg that is no loop is a position.
  */
 export function rolesOf(page: GatePage, ctx: RuleContext): Promise<Map<string, Role>> {
   let memo = roleMemo.get(page);
   if (!memo) {
     memo = (async () => {
-      const frames = await page.frames(0, Math.max(LOOP_SCAN_MS, spanOf(ctx)));
+      const frames = await page.frames(0, Math.max(loopScanEnd(ctx.causes ?? causesOf(ctx.input)), spanOf(ctx)));
       const { units } = await page.state();
-      const loops = loopNames(frames, [], ctx.cuts);
+      const loops = await loopSet(page, frames, ctx.cuts, firstCauseMs(ctx.causes ?? causesOf(ctx.input)));
       return new Map(valueNames(frames).map((n): [string, Role] => [n, loops.has(n) ? "loop" : units[n] === "px" || units[n] === "deg" ? "position" : "other"]));
     })();
     roleMemo.set(page, memo);
@@ -431,7 +636,8 @@ const envelopeWindows = async (page: GatePage, frames: Frame[], ctx: RuleContext
  * An onset whose whole change is below its unit's tolerance floor is left out.
  * A pop is one frame that covers more than half of an onset's whole change. A pulse rises from
  * rest to a peak within 500 ms and then comes back toward where it started (a flash, a badge
- * pulse); ordinary moves, tweens, springs and loops have no attack bound. A value whose starts
+ * pulse); ordinary moves, tweens, springs and loops have no attack bound, and neither has a checked extent (an edge of
+ * many moving parts, from a bar's trace.json `extents`). A value whose starts
  * repeat at a fixed period (3 or more, within 1 frame, over 15 s) is a loop. Motion the input drives,
  * and motion that starts at a cut, are left out; on a choreo or sim page only a drag or a scroll burst drives it
  * (carriedWindows). A stepped value's pops are judged on its drawings, in lengths of its object (drawingJumps), and the
@@ -466,6 +672,7 @@ const envelope: KindRule = {
     };
     const windows = await envelopeWindows(page, frames, ctx);
     const caused = isCaused(ctx) ? await exemptWindows(page, frames, ctx) : [];
+    const extentSteps = await checkedExtents(page, ctx);
     const stepped = new Set(ctx.stepped ?? []);
     const reported = new Set(valueNames(frames));
     const objects = stepped.size > 0 ? (await page.state()).objects : {};
@@ -490,10 +697,12 @@ const envelope: KindRule = {
             : `envelope: ${name} at ${at} ms jumps ${L} object lengths and back in one drawing; that is a teleport`,
       );
     }
-    for (const o of onsets(frames, windows, ctx.cuts)) {
+    // A checked extent is read as its parts moved it: the jump of who is in its union, as a part comes back or goes gone, is left out.
+    const read = byMotion(frames, extentSteps);
+    for (const o of onsets(read, windows, ctx.cuts)) {
       if (flagged.has(o.name) || o.ms > spanOf(ctx) + 1e-6) continue;
       const inCause = caused.some((w) => o.ms + FRAME_MS >= w[0] - 1e-6 && o.ms <= w[1] + 1e-6);
-      const problems = await onsetProblems(page, frames, o, units[o.name], isLoop, stepped.has(o.name), inCause, ctx.cuts, isDesigned);
+      const problems = await onsetProblems(page, read, o, units[o.name], isLoop, stepped.has(o.name), inCause, ctx.cuts, isDesigned, extentSteps.has(o.name));
       if (problems.length > 0) {
         flagged.add(o.name);
         out.push(...problems.map((p) => `envelope: ${p}`));
@@ -688,13 +897,22 @@ function periodicMemoOf(page: GatePage): PeriodicMemo {
   return memo;
 }
 
-/** Whether value `name` on `page` is a designed loop (periodic.ts), read once per page and value. */
+/**
+ * Whether value `name` on `page` is a designed loop (periodic.ts), read once per page and value. A value that moves on by
+ * a step each period (a staircase), or whose swing grows or shrinks each period, is a loop only when what it adds up to over
+ * the read (`drift`) is within its unit's floor, or in deg, a hand that ticks round: in any other unit it is a move that
+ * never stops, however small each period's step.
+ */
 export function periodicFor(page: GatePage, name: string, unit: string | undefined): Promise<Periodic | null> {
   const memo = periodicMemoOf(page);
   let found = memo.byName.get(name);
   if (!found) {
     const frames = memo.frames;
-    found = frames.then((fs) => periodicOf(page, fs, name, unitFloor(unit, rangeOf(series(fs, name)))));
+    found = frames.then(async (fs) => {
+      const floor = unitFloor(unit, rangeOf(series(fs, name)));
+      const loop = await periodicOf(page, fs, name, floor);
+      return loop && unit !== "deg" && drifted(loop.drift, floor) ? null : loop;
+    });
     memo.byName.set(name, found);
   }
   return found;
@@ -704,9 +922,11 @@ export function periodicFor(page: GatePage, name: string, unit: string | undefin
  * Overshoot: only motion a person caused may pass its rest and come back, and opacity never does.
  * Motion the input drives is left out, from the input's first sample until the page rests after
  * the last one (on a choreo or sim page, each caused window), and so are cuts. An opacity value is left out only until the input's last sample,
- * so the settle after a release is judged too. Below a unit's tolerance floor nothing is judged. A designed loop
+ * so the settle after a release is judged too. Below a unit's tolerance floor nothing is judged. A checked extent (an
+ * edge of many moving parts, from a bar's trace.json `extents`) is left out. A designed loop
  * (periodicFor) may settle past its rest by up to LOOP_OVERSHOOT of its move, when each cycle holds still for
- * REST_FRAMES frame steps; before its lead-in ends it is judged as any other motion.
+ * REST_FRAMES frame steps; before its lead-in ends it is judged as any other motion (on a choreo or sim page, a move a
+ * cause started: the lead-in of a loop a tap starts may pass its rest, as a spring does).
  */
 const overshoot: KindRule = {
   name: "overshoot",
@@ -724,20 +944,29 @@ const overshoot: KindRule = {
     const nearCut = (ms: number) => ctx.cuts.some((c) => c >= ms - FRAME_MS && c <= ms + 2 * FRAME_MS);
     const stepped = new Set(ctx.stepped ?? []);
     const raw = stepped.size > 0 ? await page.rawFrames(0, spanOf(ctx)) : [];
+    const extentSteps = await checkedExtents(page, ctx);
     const out: string[] = [];
     for (const name of valueNames(frames)) {
+      // A checked extent turns when another part becomes the extreme one, not because a body passes its rest.
+      if (extentSteps.has(name)) continue;
       const v = series(frames, name);
       // A stepped value's frames are its pose line, which glides through a held drawing: its chains end there too.
       const holdAt = stepped.has(name) ? heldDrawings(series(raw, name)) : new Set<number>();
       const unit = units[name];
       const opacity = unit === "opacity";
       const floor = unitFloor(unit, rangeOf(v));
-      const skip = (ms: number) => nearCut(ms) || (opacity ? opacityWins : wins).some((w) => ms >= w[0] - FRAME_MS - 1e-6 && ms <= w[1] + 1e-6);
+      const loop = opacity ? null : await periodicFor(page, name, unit);
+      // On a choreo or sim page a cause starts a loop's lead-in too (a spring that settles into a breath): from the cause that
+      // started the loop until the loop starts, its move may pass its rest, as any move a person caused. A loop that moved
+      // before the first cause is the page's own, and a tap in its lead-in does not make its spring the tap's.
+      const born = loop && isCaused(ctx) ? firstMoveMs(frames, name) : null;
+      const starter = born === null ? undefined : (ctx.causes ?? causesOf(ctx.input)).filter((c) => c.kind !== "load" && c.startMs <= born + 2 * FRAME_MS + 1e-6).pop();
+      const lead: [number, number][] = loop && starter ? [[starter.startMs, loop.leadMs]] : [];
+      const skip = (ms: number) => nearCut(ms) || (opacity ? opacityWins : [...wins, ...lead]).some((w) => ms >= w[0] - FRAME_MS - 1e-6 && ms <= w[1] + 1e-6);
       const hit = overshootIn(frames, v, floor, stillTol(v), skip, undefined, holdAt, !opacity);
       if (!hit) continue;
       const passes = `overshoot: ${name} passes its rest by ${round(hit.by)} at ${round(hit.ms)} ms`;
       // A designed loop may settle past its rest by up to LOOP_OVERSHOOT of its move, when each cycle holds still.
-      const loop = opacity ? null : await periodicFor(page, name, unit);
       if (loop && !loop.stillEachCycle) {
         out.push(`${passes} and comes back; a loop may settle past its rest only when each cycle holds still for ${REST_FRAMES} frames or more`);
         continue;
@@ -755,62 +984,119 @@ const overshoot: KindRule = {
   },
 };
 
+/** The floor of each value but `loops` that `frames` (and a page with no frames, its units) hold: its unit's floor, at least LIVE_STILL. */
+export function restFloors(frames: Frame[], units: Record<string, string>, loops: Set<string>): Record<string, number> {
+  const names = new Set([...valueNames(frames), ...Object.keys(units)]);
+  return Object.fromEntries([...names].filter((n) => !loops.has(n)).map((n) => [n, Math.max(LIVE_STILL, unitFloor(units[n], rangeOf(series(frames, n))))]));
+}
+
 /**
- * The loop stops at rest: 0 rAF callbacks in the second after rest. A live or scroll page rests
- * after its input. An idle page loops while it is on screen, so it is checked at its still frame
- * under reduced motion. A choreo or sim page rests when every value but its loops holds still after
- * its sequence ends, as the seek frames show it: a pause inside the sequence is no rest. There every value
- * the seek frames move must have moved (liveEndsShort). A page with a loop keeps its clock running, and its
- * kind's rules check that the loop pauses off screen.
+ * How far each value moves in one frame while the input plays (from a frame before its first sample to a frame after its
+ * last), the most any frame step takes it. A live page reads the pointer once a frame, and the gate's pointer events
+ * come on the wall clock, so the last move of the hand can reach a frame later than in the `?seek` run, or not at all: a value
+ * the hand drives lands up to this far from where its `?seek` frames end (restApart's `slack`).
+ */
+export function inputSlack(seek: Frame[], input: InputSamples | null): Record<string, number> {
+  if (!input || input.samples.length === 0) return {};
+  const { start, end } = inputSpan(input);
+  const inside = seek.filter((f) => f.ms >= start - FRAME_MS - 1e-6 && f.ms <= end + FRAME_MS + 1e-6);
+  return Object.fromEntries(
+    valueNames(seek).map((n) => {
+      const v = series(inside, n);
+      return [n, Math.max(0, ...v.slice(1).map((x, i) => Math.abs(x - v[i]!)).filter(Number.isFinite))];
+    }),
+  );
+}
+
+/**
+ * The check of the live page's rest against the `?seek` frames' (loopStopsAtRest, and resumes after a return): the first
+ * value but the loops whose live rest `values` is more than its tolerance from its `?seek` rest, the last frame of `seek`,
+ * on either side, or that `values` does not report at all. The tolerance is the value's unit floor or its `slack`
+ * (inputSlack), the greater. A page stops short of its `?seek` rest when its live loop ends early, and goes past it when it
+ * overruns (a panel that flies on past its slot, a badge that grows to 3): both are a live page that does not play the
+ * sequence the `?seek` frames show. A page that draws random values (a burst of particles) is expected to seed them as `?seek`
+ * does, so that a live run lands where its `?seek` frames end; a page that draws unseeded random values live can fail this
+ * compare. A value the `?seek` frames never report at the end is not compared. Null when every value meets its `?seek` rest.
+ * A live page may run its frames longer than 1/60 s, but a page that has stopped lands where its `?seek` frames end,
+ * whatever its frame times were.
+ */
+export function restApart(
+  values: Record<string, number>,
+  seek: Frame[],
+  loops: Set<string>,
+  units: Record<string, string>,
+  slack: Record<string, number> = {},
+): { name: string; live: number | null; seek: number } | null {
+  const last = seek[seek.length - 1]?.values ?? {};
+  for (const n of valueNames(seek).filter((x) => !loops.has(x))) {
+    const sv = last[n];
+    if (sv === undefined || !Number.isFinite(sv)) continue;
+    const lv = values[n];
+    if (lv === undefined || !Number.isFinite(lv)) return { name: n, live: null, seek: sv };
+    const tol = Math.max(unitFloor(units[n], rangeOf(series(seek, n))), slack[n] ?? 0, 1e-6);
+    if (Math.abs(lv - sv) > tol) return { name: n, live: lv, seek: sv };
+  }
+  return null;
+}
+
+/**
+ * How long the gate lets a live page play before it looks for rest: the end of the sequence the `?seek` frames show (the last
+ * move of a value that is no loop), or none when that move reaches the end of the scan, since a sequence that never ends in the
+ * frames (span says so) has no end to wait for, and the live page is judged for rest where it stands.
+ */
+export function sequenceWaitMs(seek: Frame[], loops: Set<string>, ctx: RuleContext): number {
+  const end = lastMoveMs(seek, loops) ?? 0;
+  return end > loopScanEnd(ctx.causes ?? causesOf(ctx.input)) - REST_FRAMES * FRAME_MS + 1e-6 ? 0 : end;
+}
+
+/**
+ * The loop stops at rest: 0 rAF callbacks in the second after rest. An idle page loops while it is on screen, so it is
+ * checked at its still frame under reduced motion. On every other kind the page rests when every value but its loops
+ * holds still after its sequence ends, as the `?seek` frames show it: a pause inside the sequence (a fade-out, a blank
+ * beat, then the next element) is no rest. The gate drives the input, waits for the last move of the seek frames, then
+ * for rest (waitForRest: each value's total change over the last second within its floor, on a page with a loop too);
+ * every value but the loops must then rest where the seek frames do (restApart). A page with a loop keeps its clock
+ * running, and its kind's rules check that the loop pauses off screen.
  */
 const loopStopsAtRest: KindRule = {
   name: "loopStopsAtRest",
   async check(page, ctx) {
     const idle = ctx.kind === "idle";
-    const loops = isCaused(ctx) ? loopsIn(await rolesOf(page, ctx)) : new Set<string>();
-    const seek = isCaused(ctx) ? await page.frames(0, spanOf(ctx)) : [];
-    const sequenceEnd = isCaused(ctx) ? (lastMoveMs(seek, loops) ?? 0) : 0;
+    const loops = idle ? new Set<string>() : loopsIn(await rolesOf(page, ctx));
+    const seek = idle ? [] : await page.frames(0, spanOf(ctx));
+    const { units } = await page.state();
+    const sequenceEnd = idle ? 0 : sequenceWaitMs(seek, loops, ctx);
     const live = await reopen(page, { seek: false, ...(idle ? { reducedMotion: true } : {}) });
     try {
       const t0 = performance.now();
       if (!idle) await drive(live, ctx);
       await sleep(Math.max(0, t0 + sequenceEnd - performance.now()));
-      const rest = await waitForRest(live, 5000, loops);
+      const rest = await waitForRest(live, 5000, loops, restFloors(seek, units, loops));
       if (rest === null) return [`loopStopsAtRest: the page is still moving 5 s after ${idle ? "it loads under reduced motion" : "the input ends"}`];
-      if (isCaused(ctx)) {
-        const short = await liveEndsShort(live, seek, loops, (await page.state()).units, Math.min(...(ctx.causes ?? causesOf(ctx.input)).map((c) => c.startMs)));
-        if (short) return [short];
+      // A loop keeps the clock running: on a page with one, the rest of the page resting is enough.
+      if (loops.size === 0) {
+        const n = await live.rafCountAfter(rest, 1000);
+        if (n > 0) return [`loopStopsAtRest: ${n} rAF callbacks ran in the second after the page came to rest${idle ? " under reduced motion" : ""}`];
       }
-      // A loop keeps the clock running: on a choreo or sim page with one, the rest of the page resting is enough.
-      if (loops.size > 0) return [];
-      const n = await live.rafCountAfter(rest, 1000);
-      return n === 0 ? [] : [`loopStopsAtRest: ${n} rAF callbacks ran in the second after the page came to rest${idle ? " under reduced motion" : ""}`];
+      if (!idle) {
+        const apart = restApart((await live.state()).values, seek, loops, units, inputSlack(seek, ctx.input));
+        if (apart) return [`loopStopsAtRest: the live page comes to rest with ${apart.name} ${apart.live === null ? "never reported" : `at ${round(apart.live)}`}, where its ?seek frames end at ${round(apart.seek)}; the live loop stopped before its sequence ended`];
+      }
+      return [];
     } finally {
       await live.close();
     }
   },
 };
 
-/**
- * On a choreo or sim page at rest on its live loop: each value but the loops that the `?seek` frames move away from
- * where it was when the first cause started has left that start too (by its unit floor or 2% of its range). A live
- * loop that stops in a pause, and so never plays the rest of the sequence, fails. Where a value lands is not compared:
- * a live frame may run longer than 1/60 s, and chaotic physics may land elsewhere.
- */
-async function liveEndsShort(live: GatePage, seek: Frame[], loops: Set<string>, units: Record<string, string>, startMs: number): Promise<string | null> {
-  const { values } = await live.state();
-  const before = [...seek].reverse().find((f) => f.ms < startMs - 1e-6) ?? seek[0];
-  const last = seek[seek.length - 1]?.values ?? {};
-  for (const n of valueNames(seek).filter((x) => !loops.has(x))) {
-    const range = rangeOf(series(seek, n));
-    const tol = Math.max(unitFloor(units[n], range), 0.02 * range);
-    const [start, lv, sv] = [before?.values[n] ?? Number.NaN, values[n] ?? Number.NaN, last[n] ?? Number.NaN];
-    if (Math.abs(sv - start) > tol && Math.abs(lv - start) <= tol) return `loopStopsAtRest: the live page comes to rest with ${n} still at its start, ${round(lv)}, where its ?seek frames end at ${round(sv)}; the live loop stopped before its sequence ended`;
-  }
-  return null;
-}
-
 const NOISY = /^(error|warning|assert|pageerror): /;
+
+/**
+ * The browser's own GL performance note, such as `GPU stall due to ReadPixels`. Chromium writes up to 4 of them in the
+ * first WebGL context of a fresh browser; a page can neither cause nor stop them, and which page sees them depends on run
+ * order. consoleClean leaves out this one warning. A page's own warning and every error still count.
+ */
+export const BROWSER_NOTE = /^warning: \[\.WebGL-[^\]]*\]GL Driver Message \([^)]*\bPerformance\b/;
 
 /** The console stays clean: no error, warning or uncaught error, on the `?seek` run or the live run. */
 const consoleClean: KindRule = {
@@ -822,8 +1108,8 @@ const consoleClean: KindRule = {
       await drive(live, ctx);
       await sleep(300);
       return [
-        ...page.console().filter((m) => NOISY.test(m)).map((m) => `consoleClean: ${m} (the ?seek run)`),
-        ...live.console().filter((m) => NOISY.test(m)).map((m) => `consoleClean: ${m} (the live run)`),
+        ...page.console().filter((m) => NOISY.test(m) && !BROWSER_NOTE.test(m)).map((m) => `consoleClean: ${m} (the ?seek run)`),
+        ...live.console().filter((m) => NOISY.test(m) && !BROWSER_NOTE.test(m)).map((m) => `consoleClean: ${m} (the live run)`),
       ];
     } finally {
       await live.close();
@@ -875,8 +1161,77 @@ export function sweepInput(startMs: number, maxY: number): ScrollInput {
 }
 
 /**
+ * Whether the input moves the loop `name`, beyond its own motion: in the frames `within` selects, `normal` (read with the
+ * input) differs from `bare` (the same page read with no input) by more than `eps` and by more than the loop's own swing
+ * (`swing`, its range over one period). A loop is left out of "answers the input" only as far as it explains the motion: a
+ * value that is both dragged and a loop (the drag ends inside the loop's lead-in) still has to answer under reduced motion,
+ * but a loop that begins at the release differs from the page with no input by its own swing at most, and holds still
+ * under reduced motion by rule.
+ */
+function movedByInput(normal: Frame[], bare: Frame[], name: string, within: (f: Frame) => boolean, eps: number, swing: number): boolean {
+  const alone = new Map(bare.map((f) => [f.ms, f.values[name]]));
+  const gap = Math.max(eps, swing);
+  return normal.filter(within).some((f) => Math.abs((f.values[name] ?? Number.NaN) - (alone.get(f.ms) ?? Number.NaN)) > gap);
+}
+
+/** `page`'s frames from 0 to `toMs` ms, read with no input. */
+async function bareFrames(page: GatePage, toMs: number): Promise<Frame[]> {
+  const bare = await reopen(page, { input: [] });
+  try {
+    return await bare.frames(0, toMs);
+  } finally {
+    await bare.close();
+  }
+}
+
+/** `ranges` without the loops: a loop has no start or end state to show, so the blank-start check leaves it out. */
+const withoutLoops = (ranges: Map<string, number>, loops: Set<string>) => new Map([...ranges].filter(([n]) => !loops.has(n)));
+
+/**
+ * The values of the loop `n` over one period of its swing: the page's frames over one period from when its lead-in ends
+ * (periodicFor), or, for a loop periodicFor does not find, the later half of `normal`.
+ */
+async function swingOf(page: GatePage, normal: Frame[], n: string, units: Record<string, string>): Promise<number[]> {
+  const found = await periodicFor(page, n, units[n]);
+  const frames = found
+    ? (await periodicMemoOf(page).frames).filter((f) => f.ms >= found.leadMs - 1e-6 && f.ms <= found.leadMs + found.periodMs + 1e-6)
+    : normal.filter((f) => f.ms >= (normal[normal.length - 1]?.ms ?? 0) / 2);
+  return frames.map((f) => f.values[n] ?? Number.NaN);
+}
+
+/**
+ * The loops the blank-start check leaves out, of `loops`: those whose start state the loop comes back to. A steady value
+ * (steadyStep) is left out unless it came to its speed from a faster one (neverFasterThan: a slide-on that comes to a slow
+ * drift, an entrance whose last 500 ms look like a marquee's). A hand that turns on in deg is left out: it comes back after
+ * a turn. Any other loop is left out when its start state lies inside its own swing, within the tolerance sameState allows:
+ * the page's frames over one period from when its lead-in ends (periodicFor), or, for a loop periodicFor does not find,
+ * the later half of `normal`. A loop whose swing no frames hold is left out too, since its swing is not known. A value
+ * that fades in from 0 and then glows starts outside its swing: it is an entrance, though it loops after.
+ */
+async function restingLoops(page: GatePage, normal: Frame[], loops: Set<string>, units: Record<string, string>, ranges: Map<string, number>): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const n of loops) {
+    const drift = steadyStep(normal, n);
+    if (drift !== null) {
+      if (neverFasterThan(normal, n, drift)) out.add(n);
+      continue;
+    }
+    if (units[n] === "deg") {
+      out.add(n);
+      continue;
+    }
+    const v = await swingOf(page, normal, n, units);
+    const [lo, hi, start] = [Math.min(...v), Math.max(...v), normal[0]?.values[n] ?? Number.NaN];
+    const tol = Math.max(1e-3, 0.02 * (ranges.get(n) ?? 0));
+    if (v.length === 0 || !Number.isFinite(lo + hi + start) || (start >= lo - tol && start <= hi + tol)) out.add(n);
+  }
+  return out;
+}
+
+/**
  * A blank start state: a start the page leaves and never comes back to without reduced motion (an entrance). A value
- * that wraps (sameState) comes back when it has moved on by a whole turn or step.
+ * that wraps (sameState) comes back when it has moved on by a whole turn. `ranges` holds the values it judges: the
+ * callers leave the loops out (withoutLoops).
  */
 function blankStill(normal: Frame[], reduced: Frame[], ranges: Map<string, number>, wraps: (n: string) => number[]): string[] {
   const same = (a: Record<string, number>, b: Record<string, number>) => sameState(a, b, ranges, wraps);
@@ -910,6 +1265,7 @@ async function steppedStates(page: GatePage, ctx: RuleContext): Promise<string[]
   const normal = await run(false);
   const rf = await run(true);
   const { units } = await page.state();
+  const loops = loopsIn(await rolesOf(page, ctx));
   const names = valueNames([...normal, ...rf]);
   const ranges = new Map(names.map((n) => [n, Math.max(rangeOf(series(normal, n)), rangeOf(series(rf, n)))]));
   const scrollAt = (ms: number) => [...sweep.samples].reverse().find((q) => q[0] <= ms + 1e-6)?.[1] ?? 0;
@@ -947,9 +1303,9 @@ async function steppedStates(page: GatePage, ctx: RuleContext): Promise<string[]
     }
     // Input still answers.
     const answers = (frames: Frame[]) => rangeOf(frames.filter(inSweep).map((f) => f.values[n] ?? Number.NaN)) > eps;
-    if (answers(normal) && !answers(rf)) out.push(`reducedMotion: ${n} answers the input without reduced motion, but not with it; input still answers under reduced motion`);
+    if (!loops.has(n) && answers(normal) && !answers(rf)) out.push(`reducedMotion: ${n} answers the input without reduced motion, but not with it; input still answers under reduced motion`);
   }
-  out.push(...blankStill(normal, rf, ranges, turns(units)));
+  out.push(...blankStill(normal, rf, withoutLoops(ranges, await restingLoops(page, normal, loops, units, ranges)), turns(units)));
   return out;
 }
 
@@ -1060,7 +1416,7 @@ async function causedReduced(page: GatePage, ctx: RuleContext): Promise<string[]
     if (missed) out.push(`reducedMotion: ${n} holds at ${round(missed.level)} from ${round(missed.from)} to ${round(missed.to)} ms after the cause at ${round(missed.cause)} ms and comes back, but not under reduced motion; reduced motion shows a held state too`);
   }
   const before = (fs: Frame[]) => fs.filter((f) => f.ms < at - 1e-6);
-  out.push(...blankStill(before(normal), before(rf), ranges, turns(units)));
+  out.push(...blankStill(before(normal), before(rf), withoutLoops(ranges, await restingLoops(page, before(normal), loops, units, ranges)), turns(units)));
   return out;
 }
 
@@ -1086,6 +1442,7 @@ export const reducedMotion: KindRule = {
     }
     const out: string[] = [];
     const { units } = await page.state();
+    const loops = loopsIn(await rolesOf(page, ctx));
     const names = valueNames([...normal, ...rf]);
     const ranges = new Map(names.map((n) => [n, Math.max(rangeOf(series(normal, n)), rangeOf(series(rf, n)))]));
     const changes = inputChanges(ctx.input);
@@ -1106,18 +1463,19 @@ export const reducedMotion: KindRule = {
         const inSpan = frames.filter((f) => f.ms >= start - 1e-6 && f.ms <= end + FRAME_MS + 1e-6).map((f) => f.values[n] ?? Number.NaN);
         return rangeOf(inSpan) > stillEps(ranges.get(n)!);
       };
-      for (const n of names) if (moves(normal, n) && !moves(rf, n)) out.push(`reducedMotion: ${n} answers the input without reduced motion, but not with it; input still answers under reduced motion`);
+      const inSpan = (f: Frame) => f.ms >= start - 1e-6 && f.ms <= end + FRAME_MS + 1e-6;
+      let bare: Promise<Frame[]> | undefined;
+      for (const n of names) {
+        if (!moves(normal, n) || moves(rf, n)) continue;
+        if (loops.has(n)) {
+          bare ??= bareFrames(page, normal[normal.length - 1]!.ms);
+          if (!movedByInput(normal, await bare, n, inSpan, stillEps(ranges.get(n)!), rangeOf(await swingOf(page, normal, n, units)))) continue;
+        }
+        out.push(`reducedMotion: ${n} answers the input without reduced motion, but not with it; input still answers under reduced motion`);
+      }
     }
-    // A ticking loop comes back on screen each period, moved on by its step; a value that moves at one steady speed
-    // (a marquee) each frame, moved on by its frame step.
-    const steps = new Map<string, number>();
-    for (const n of names) {
-      const loop = await periodicFor(page, n, units[n]);
-      if (loop && Math.abs(loop.step) > unitFloor(units[n], ranges.get(n)!)) steps.set(n, Math.abs(loop.step));
-      const d = series(normal, n).slice(1).map((x, i) => x - normal[i]!.values[n]!);
-      if (!loop && d.length > 0 && Math.abs(d[0]!) > stillEps(ranges.get(n)!) && d.every((x) => Math.abs(x - d[0]!) <= stillEps(ranges.get(n)!))) steps.set(n, Math.abs(d[0]!));
-    }
-    out.push(...blankStill(normal, rf, ranges, (n) => [...turns(units)(n), ...(steps.has(n) ? [steps.get(n)!] : [])]));
+    // A loop has no start or end state to show: the blank-start check leaves it out, a ticking hand and a marquee with it.
+    out.push(...blankStill(normal, rf, withoutLoops(ranges, await restingLoops(page, normal, loops, units, ranges)), turns(units)));
     return out;
   },
 };
@@ -1145,6 +1503,79 @@ export const stepped: KindRule = {
 };
 
 /**
+ * The first peak in frames `from` to `end` of `v` (a local extreme of its distance from `start`) that is further out
+ * than an earlier peak by more than `floor`, with that earlier peak's distance; null when the swings never grow. A
+ * peak is the last frame of a run at its height, so a hold at the top counts once. A peak within `floor` of `start` is
+ * noise, not a swing, and does not count.
+ */
+function swingGrows(frames: Frame[], v: number[], from: number, end: number, start: number, floor: number): { ms: number; d: number; d0: number } | null {
+  let lowest = Number.POSITIVE_INFINITY;
+  for (let i = from + 1; i < end; i++) {
+    const d = Math.abs(v[i]! - start);
+    if (d <= floor || !(d >= Math.abs(v[i - 1]! - start) && d > Math.abs(v[i + 1]! - start))) continue;
+    if (d - lowest > floor) return { ms: frames[i]!.ms, d, d0: lowest };
+    lowest = Math.min(lowest, d);
+  }
+  return null;
+}
+
+/**
+ * Tweens (a bar's trace.json `tweens`): a control that acts out its meaning with a keyframe tween beside the bodies, a
+ * tile that bobs or shakes as it is tapped. The sim gate's `energyFalls` leaves a named value out: a CSS ease segment
+ * ends at zero speed and the next starts at 0.4 of its mean speed, which reads as a bounce that rises, and a kick at a
+ * body's apex looks the same, so motion alone cannot tell them apart. So the name is guarded: each must be a value the
+ * page reports, it must change, and after every cause it must end where it was just before that cause (within its
+ * unit's floor) and hold still there. A thrown body lands elsewhere, so it cannot be named. A window a later cause cuts
+ * off while the value still moves is not read at its end, and the next window's start is the home the value left.
+ * A returning body would pass all that, a ball that hops 10, 20, then 40 px and lands at 0 each time, so inside each
+ * window the peaks (the value's local extremes, as distance from home) must not grow: a bob has equal peaks, a shake
+ * falling ones, and a later peak further out than an earlier one by more than the floor is a bounce that rises. A
+ * peak within the floor of home is noise and does not count. A small dip before a larger swing (an anticipation) reads
+ * as a swing that grows, so it is left out of the class. Only a
+ * sim page may name tweens.
+ */
+export const tweens: KindRule = {
+  name: "tweens",
+  async check(page, ctx) {
+    const names = ctx.tweens ?? [];
+    if (names.length === 0) return [];
+    if (ctx.kind !== "sim") return ["tweens: only a sim page may name tweens"];
+    const frames = await page.frames(0, spanOf(ctx));
+    const reported = new Set(valueNames(frames));
+    const { units } = await page.state();
+    const causes = ctx.causes ?? causesOf(ctx.input);
+    const hint = "a tween comes back to where it started and holds there";
+    return names.flatMap((name) => {
+      if (!reported.has(name)) return [`tweens: ${name} is not a value the page reports`];
+      const v = series(frames, name);
+      const range = rangeOf(v);
+      if (!(range > 0)) return [`tweens: ${name} never changes`];
+      const [eps, floor] = [stillEps(range), unitFloor(units[name], range)];
+      let home: number | null = null;
+      for (let k = 0; k < causes.length; k++) {
+        const to = frames.findIndex((f) => f.ms > (causes[k + 1]?.startMs ?? Number.POSITIVE_INFINITY) + 1e-6);
+        const end = to < 0 ? frames.length - 1 : to - 1;
+        const from = frames.reduce((at, f, i) => (f.ms <= causes[k]!.startMs + 1e-6 ? i : at), 0);
+        const last = k + 1 === causes.length;
+        const still = end - REST_FRAMES >= from && v.slice(end - REST_FRAMES, end + 1).every((x, i, w) => i === 0 || Math.abs(x - w[i - 1]!) <= eps);
+        const at = `after the cause at ${round(causes[k]!.startMs)} ms`;
+        const start = home ?? v[from]!;
+        const swing = swingGrows(frames, v, from, end, start, floor);
+        if (swing) return [`tweens: ${name} swings further from home at ${round(swing.ms)} ms (${round(swing.d)} after ${round(swing.d0)}); a tween's swings never grow`];
+        if (!still) {
+          if (last) return [`tweens: ${name} still moves at the end of the frames ${at}; ${hint}`];
+          home ??= v[from]!;
+          continue;
+        }
+        if (Math.abs(v[end]! - start) > floor) return [`tweens: ${name} ends at ${round(v[end]!)} ${at}, not at ${round(start)} where it was just before it; ${hint}`];
+        home = null;
+      }
+      return [];
+    });
+  },
+};
+
+/**
  * Objects: the record a page reports in `__state().objects` is whole in every frame the rules read, each `px` value
  * moves its box, and each box spike has a cause (objects.ts `checkObjects`). A page that reports none passes.
  */
@@ -1157,6 +1588,95 @@ export const objects: KindRule = {
     return checkObjects(frames, s.objects, valueNames(frames), s.units, width, height, ctx.kind === "scroll", ctx.cuts);
   },
 };
+
+/**
+ * Extents (a bar's trace.json `extents`): a value that is an edge of many moving parts, such as the box around 24 cards
+ * on one canvas. It turns when another part becomes the extreme one, not because a body passes its rest, so a checked
+ * extent has no pulse attack bound in the envelope and is left out of `overshoot`; pops, fades, values and every kind
+ * rule still read it. The name is guarded (extents.ts `checkExtents`): in every frame the value is that edge of the union
+ * of its drawn parts' boxes, within the px floor; the parts are a group; the edge passes from one part to another at least
+ * once; and no part turns round and comes to rest while it holds the edge. So a single body cannot be named, with a part beside it or
+ * without. A page that declares none passes. The `drawn` rule checks each part's box against the screen.
+ */
+export const extents: KindRule = {
+  name: "extents",
+  async check(page, ctx) {
+    const declared = ctx.extents ?? {};
+    if (Object.keys(declared).length === 0) return [];
+    return extentLines(page, ctx, declared);
+  },
+};
+
+/** The `extents:` lines for `declared` on the frames the rules read (the same read as `objects`). */
+async function extentLines(page: GatePage, ctx: RuleContext, declared: Extents): Promise<string[]> {
+  const frames = await page.rawFrames(0, spanOf(ctx));
+  const s = await page.state();
+  const { width, height } = await page.viewport();
+  return checkExtents(frames, declared, s.objects, s.units, width, height);
+}
+
+/** The steps of a checked extent where who is in its union changes, by the frame's time in whole microseconds: how far the edge moved over the parts drawn in both frames. */
+type MembershipSteps = Map<number, number>;
+
+/** checkedExtents' results, by page: one read of the guard serves the envelope and overshoot rules. */
+const checkedByPage = new WeakMap<GatePage, Promise<Map<string, MembershipSteps>>>();
+
+/**
+ * The declared extents whose guard passes, by value name: the values the envelope's pulse attack and `overshoot` leave
+ * out. Each maps to its membership steps: the frame steps where a part comes back or goes gone, with how far the edge
+ * moved in that step over the parts drawn in both frames (membershipSteps). The envelope reads the extent as its parts
+ * moved it (`byMotion`).
+ */
+export function checkedExtents(page: GatePage, ctx: RuleContext): Promise<Map<string, MembershipSteps>> {
+  const declared = ctx.extents ?? {};
+  if (Object.keys(declared).length === 0) return Promise.resolve(new Map());
+  let known = checkedByPage.get(page);
+  if (!known) {
+    known = (async () => {
+      // The envelope reads SETTLE_MS past the span, and so does the membership.
+      const frames = await page.rawFrames(0, spanOf(ctx) + SETTLE_MS);
+      const { width, height } = await page.viewport();
+      const out = new Map<string, MembershipSteps>();
+      for (const [name, e] of Object.entries(declared)) {
+        if ((await extentLines(page, ctx, { [name]: e })).length > 0) continue;
+        out.set(name, new Map([...membershipSteps(frames, e, width, height)].map(([ms, change]) => [Math.round(ms * 1000), change])));
+      }
+      return out;
+    })();
+    checkedByPage.set(page, known);
+  }
+  return known;
+}
+
+/**
+ * `frames` with each checked extent's value read as its parts moved it: in a step where a part comes back or goes gone
+ * the edge's own jump (who is in the union changed) is replaced by how far the edge moved over the parts drawn in both
+ * frames, and every other step is the edge's own. So the envelope's pop test and its whole change see the motion alone: a
+ * card that jumps in the step in which another comes back is a pop, and the arrival of the first cards, which swings the
+ * edge across the viewport, no longer makes it small. A frame without a number is left as it is.
+ */
+function byMotion(frames: Frame[], steps: Map<string, MembershipSteps>): Frame[] {
+  if (steps.size === 0) return frames;
+  const acc = new Map<string, number>();
+  return frames.map((f, i) => {
+    let values = f.values;
+    for (const [name, at] of steps) {
+      const x = f.values[name];
+      const before = i > 0 ? frames[i - 1]!.values[name] : undefined;
+      if (x === undefined || !Number.isFinite(x)) {
+        acc.delete(name);
+        continue;
+      }
+      const last = acc.get(name);
+      const moved = before === undefined || !Number.isFinite(before) ? undefined : (at.get(Math.round(frames[i - 1]!.ms * 1000)) ?? x - before);
+      const next = last === undefined || moved === undefined ? x : last + moved;
+      acc.set(name, next);
+      if (values === f.values) values = { ...f.values };
+      values[name] = next;
+    }
+    return values === f.values ? f : { ...f, values };
+  });
+}
 
 /**
  * Drawn: the boxes in a page's object record hold what changes on screen, judged on screenshot pairs (drawn.ts). A
@@ -1194,7 +1714,25 @@ export const values: KindRule = {
   },
 };
 
-export const ALL_RULES: KindRule[] = [envelope, overshoot, loopStopsAtRest, consoleClean, reducedMotion, stepped, objects, drawn, values];
+/**
+ * Sudden jumps: no value moves in one frame step what it should spread over the step (self-checks.ts suddenJumps). The
+ * gate seeks each step that moves a share of the value's range, or far more than the steps beside it, at sub-steps, and
+ * judges whether the change lands in one of them. A value that is not a finite number in every frame is for `values`,
+ * and a stepped value is read on its drawings by `stepped`, so both are left out. A page that moves a value in whole
+ * frames only cannot be read between frames: the run of steps is skipped with a note.
+ */
+export const suddenJumpsRule: KindRule = {
+  name: "suddenJumps",
+  async check(page, ctx) {
+    const span = spanOf(ctx);
+    const frames = await page.frames(0, span);
+    const drawings = new Set(ctx.stepped ?? []);
+    const names = valueNames(frames).filter((n) => !drawings.has(n) && series(frames, n).every(Number.isFinite));
+    return suddenJumps(page, names, ctx.cuts, span, ctx.input, [], ctx.kind === "scroll", ctx.notes, frames, await checkedExtents(page, ctx));
+  },
+};
+
+export const ALL_RULES: KindRule[] = [envelope, overshoot, loopStopsAtRest, consoleClean, reducedMotion, stepped, tweens, objects, extents, drawn, values, suddenJumpsRule];
 
 // ---- the gate -------------------------------------------------------------------------------
 
@@ -1242,11 +1780,15 @@ function localScripts(html: string, dir: string): PageScript[] {
   return out;
 }
 
-type Trace = { input?: { kind?: unknown; samples?: unknown }; cuts?: unknown; samples?: unknown; stepped?: unknown };
+type Trace = { input?: { kind?: unknown; samples?: unknown }; cuts?: unknown; samples?: unknown; stepped?: unknown; tweens?: unknown; extents?: unknown };
 
 /** The values a trace marks as stepped (held in drawings on purpose), or none. */
 export const steppedOf = (trace: { stepped?: unknown } | undefined): string[] =>
   Array.isArray(trace?.stepped) ? trace.stepped.filter((n): n is string => typeof n === "string") : [];
+
+/** The values a trace marks as a control's keyframe tween (the sim gate's energyFalls leaves them out), or none. */
+export const tweensOf = (trace: { tweens?: unknown } | undefined): string[] =>
+  Array.isArray(trace?.tweens) ? trace.tweens.filter((n): n is string => typeof n === "string") : [];
 
 /** The times of a trace's rows, `[ms, ...values]`. */
 const rowTimes = (trace: Trace | undefined): number[] =>
@@ -1274,19 +1816,38 @@ function recordedInput(kind: KindName, trace: Trace | undefined): InputSamples |
   return null;
 }
 
+/** When the first of `causes` starts. */
+const firstCauseMs = (causes: Cause[]) => Math.min(...causes.map((c) => c.startMs));
+
 /** When the last cause in `input` stops, or 0 with none. */
 const lastStop = (input: InputSamples | null) => Math.max(0, ...causesOf(input).map((c) => c.stopMs));
 
 /**
+ * How far the gate reads a choreo or sim page to sort its loops from its sequences: LOOP_SCAN_MS, or SEQUENCE_SCAN_MS
+ * past the last cause's stop, the later. causedSpan finds where the sequence ends and rolesOf sorts the loops, both over
+ * this one read, so they agree on what loops.
+ */
+export const loopScanEnd = (causes: Cause[]) => Math.max(LOOP_SCAN_MS, Math.max(0, ...causes.map((c) => c.stopMs)) + SEQUENCE_SCAN_MS);
+
+/**
+ * Where the sequence `input` starts ends on `page` (open with that input): the last move of a value that is no loop, looked
+ * for up to SEQUENCE_SCAN_MS past the last cause's stop, and whether a value still moves at the end of that read (`cut`). A
+ * choreo or sim page's loops are sorted with its first cause (loopSet's `causeMs`), as rolesOf does.
+ */
+async function sequenceEnd(page: GatePage, input: InputSamples, cuts: number[], causeMs?: number): Promise<{ endMs: number; cut: boolean }> {
+  const scan = loopScanEnd(causesOf(input));
+  const frames = await page.frames(0, scan);
+  const end = lastMoveMs(frames, await loopSet(page, frames, cuts, causeMs)) ?? 0;
+  return { endMs: end, cut: end > scan - REST_FRAMES * FRAME_MS + 1e-6 };
+}
+
+/**
  * How far the rules read on a choreo or sim page playing `input` (open on `page`): CAUSE_SETTLE_MS past the last
- * cause's stop, or SETTLE_MS past the end of the sequence it starts, the later. The end is the last move of a value
- * that is no loop, looked for up to SEQUENCE_SCAN_MS past the stop.
+ * cause's stop, or SETTLE_MS past the end of the sequence it starts, the later (sequenceEnd).
  */
 async function causedSpan(page: GatePage, input: InputSamples, cuts: number[]): Promise<{ spanMs: number; cut: boolean }> {
-  const scan = lastStop(input) + SEQUENCE_SCAN_MS;
-  const frames = await page.frames(0, scan);
-  const end = lastMoveMs(frames, loopNames(frames, [], cuts)) ?? 0;
-  return { spanMs: Math.max(lastStop(input) + CAUSE_SETTLE_MS, end + SETTLE_MS), cut: end > scan - REST_FRAMES * FRAME_MS + 1e-6 };
+  const { endMs, cut } = await sequenceEnd(page, input, cuts, firstCauseMs(causesOf(input)));
+  return { spanMs: Math.max(lastStop(input) + CAUSE_SETTLE_MS, endMs + SETTLE_MS), cut };
 }
 
 /** A choreo or sim page still moving SEQUENCE_SCAN_MS past the last cause's stop: the rules do not read its end. */
@@ -1353,7 +1914,7 @@ type InputAndSpan = { input: InputSamples | null; spanMs: number; cut?: boolean 
 async function inputAndSpan(file: string, kind: KindName, trace: Trace | undefined): Promise<InputAndSpan> {
   if (CAUSED_KINDS.includes(kind)) return causedInputAndSpan(file, kind, trace);
   const recorded = recordedInput(kind, trace);
-  if (recorded) return { input: recorded, spanMs: recordedSpan(recorded, rowTimes(trace)) };
+  if (recorded) return { input: recorded, ...(await liveSpan(file, recorded, recordedSpan(recorded, rowTimes(trace)), trace)) };
   if (syntheticInput(kind) === null) return { input: null, spanMs: await idleSpan(file, trace) };
   let probe: GatePage | undefined;
   let start = INPUT_START_MS;
@@ -1367,7 +1928,29 @@ async function inputAndSpan(file: string, kind: KindName, trace: Trace | undefin
   } finally {
     await probe?.close();
   }
-  return { input: syntheticInput(kind, start), spanMs: SPAN_MS + (start - INPUT_START_MS) };
+  const input = syntheticInput(kind, start);
+  return { input, ...(await liveSpan(file, input!, SPAN_MS + (start - INPUT_START_MS), trace)) };
+}
+
+/**
+ * How far the rules read a live or scroll page playing `input`: `floorMs` (SPAN_MS past the input's start, or a recorded
+ * input's span), or SETTLE_MS past the end of the sequence the input starts, the later. A page's toast that holds 4 s, its
+ * beat, its second element all happen before that end: the end is where the page stops (sequenceEnd), not a fixed time.
+ */
+async function liveSpan(file: string, input: InputSamples, floorMs: number, trace: Trace | undefined): Promise<{ spanMs: number; cut?: boolean }> {
+  const cuts = Array.isArray(trace?.cuts) ? trace.cuts.filter((c): c is number => typeof c === "number") : [];
+  let page: GatePage | undefined;
+  try {
+    page = await openPage(file, { input: input.samples, stepped: steppedOf(trace), steppedInputRaw: true });
+    const { endMs, cut } = await sequenceEnd(page, input, cuts, firstCauseMs(causesOf(input)));
+    return { spanMs: Math.max(floorMs, endMs + SETTLE_MS), cut };
+  } catch (e) {
+    // As above: a page that cannot open fails the gate's start; one with no clock hook fails noHook.
+    if (!page) throw e;
+    return { spanMs: floorMs };
+  } finally {
+    await page?.close();
+  }
 }
 
 /**
@@ -1447,7 +2030,7 @@ export async function kindGate(file: string): Promise<KindVerdict> {
   const cuts = Array.isArray(trace?.cuts) ? trace.cuts.filter((c): c is number => typeof c === "number") : [];
   const { input, spanMs, cut } = await inputAndSpan(file, kind, trace);
   const stepped = steppedOf(trace);
-  const ctx: RuleContext = { kind, input, cuts, spanMs, causes: causesOf(input), stepped, notes: [] };
+  const ctx: RuleContext = { kind, input, cuts, spanMs, causes: causesOf(input), stepped, tweens: tweensOf(trace), extents: extentsOf(trace), notes: [] };
   // On a live or scroll page the input drives the motion: inside the input window, stepped values read as drawings.
   const steppedInputRaw = kind === "live" || kind === "scroll";
   let opened: Promise<GatePage> | undefined;

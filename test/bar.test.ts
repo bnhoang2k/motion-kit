@@ -26,7 +26,7 @@ function reader(dials: unknown[] | undefined = undefined, files: Record<string, 
   return (p: string): string | undefined => {
     if (Object.hasOwn(files, p)) return files[p];
     if (p === "kinds/idle/dials.json") return JSON.stringify(entries);
-    if (p.startsWith("kinds/")) return undefined;
+    if (p.startsWith("kinds/") && !p.endsWith("/dial-set.json")) return undefined;
     return fromDisk(p);
   };
 }
@@ -44,7 +44,7 @@ describe("validateBar", () => {
     const read = reader();
     expect(validateBar(`${FIX}/good`, (p) => (seen.push(p), read(p)))).toEqual([]);
     const bar = ["index.html", "bar.json", "notes.md", "trace.json"].map((f) => `${FIX}/good/${f}`);
-    expect([...new Set(seen)].sort()).toEqual([...bar, "bars/moments.json", "kinds/idle/dials.json"].sort());
+    expect([...new Set(seen)].sort()).toEqual([...bar, "bars/moments.json", "kinds/idle/dial-set.json", "kinds/idle/dials.json"].sort());
   });
 
   it.each([
@@ -98,7 +98,16 @@ describe("validateBar", () => {
       "bar.json dials[0].value: 5, but kinds/idle/dials.json holds 4",
     ]);
     const unknownKnob = withBar({ ...goodBar(), dials: [{ path: "loop.periodS", value: 4, unit: "s", knob: "idle.speed", row: "Row 1" }] });
-    expect(validateBar(`${FIX}/good`, unknownKnob)).toEqual(['bar.json dials[0].knob: unknown knob "idle.speed"']);
+    expect(validateBar(`${FIX}/good`, unknownKnob)).toEqual(['bar.json dials[0].knob: unknown knob "idle.speed": not in kinds/idle/dial-set.json']);
+  });
+
+  it("takes a dial from the dial set with no dials.json entry when the knob is not public", () => {
+    const set = JSON.stringify([{ name: "idle.period", unit: "s", meaning: "loop" }, { name: "idle.rest", unit: "s", meaning: "the still part of a loop" }]);
+    const own = { ...goodBar(), dials: [{ path: "loop.periodS", value: 4, unit: "s", knob: "idle.rest", row: "Row 1" }] };
+    const read = reader([], { [`${FIX}/good/bar.json`]: JSON.stringify(own), "kinds/idle/dial-set.json": set });
+    expect(validateBar(`${FIX}/good`, read)).toEqual([]);
+    const noKind = { ...own, dials: [{ ...own.dials[0], knob: "spin.rate" }] };
+    expect(validateBar(`${FIX}/good`, reader([], { [`${FIX}/good/bar.json`]: JSON.stringify(noKind) }))).toEqual(['bar.json dials[0].knob: unknown knob "spin.rate"']);
   });
 
   it("finds the dials.json entry by bar and knob, and uses `from` when it is there", () => {

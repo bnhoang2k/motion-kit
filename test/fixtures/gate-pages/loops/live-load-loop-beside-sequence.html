@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="live">
+<title>live: a loop from load beside a timed sequence</title>
+<style>html { background: #fff } body { margin: 0;  } #stage { position: fixed; inset: 0 } .el { position: absolute; left: 300px; width: 120px; height: 50px; background: #333; border-radius: 8px }</style>
+</head>
+<body>
+<div id="stage"><div class="el" id="x" style="top:120px"></div><div class="el" id="a" style="top:190px"></div><div class="el" id="o" style="top:260px"></div><div class="el" id="b" style="top:330px"></div><div class="el" id="g" style="top:400px"></div></div>
+<script>
+const MOTION = {
+ "maxStepS": 0.05,
+ "omega": 22,
+ "restPx": 0.01,
+ "stop": "rest",
+ "pause": true,
+ "resume": "ok",
+ "pieces": [
+  {
+   "n": "a",
+   "unit": "px",
+   "from": 0,
+   "to": 200,
+   "at": 0,
+   "dur": 0.4
+  },
+  {
+   "n": "o",
+   "unit": "opacity",
+   "from": 1,
+   "to": 0,
+   "at": 0.4,
+   "dur": 0.3
+  },
+  {
+   "n": "b",
+   "unit": "px",
+   "from": 0,
+   "to": 200,
+   "at": 1.5,
+   "dur": 0.4
+  }
+ ],
+ "loops": [
+  {
+   "n": "g",
+   "unit": "px",
+   "amp": 8,
+   "period": 2,
+   "at": 0,
+   "from": "load"
+  }
+ ]
+};
+</script>
+<script src="live-pieces.js"></script>
+</body>
+</html>

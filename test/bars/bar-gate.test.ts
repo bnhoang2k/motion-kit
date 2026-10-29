@@ -233,6 +233,33 @@ describe("the bar gate", () => {
     expect(withStepped([""])).toEqual(["trace.json: stepped must be a list of value names"]);
   });
 
+  it("accepts tweens as a list of distinct value names, a channel's read or another page value", () => {
+    const reads = demoTrace().channels.map((c) => c.read as string);
+    const withTweens = (tweens: unknown) => checkTrace({ ...demoTrace(), tweens }).shape;
+    expect(withTweens([reads[0]])).toEqual([]);
+    expect(withTweens([reads[0], "tile"])).toEqual([]);
+    expect(withTweens([reads[0], reads[0]])).toEqual(["trace.json: tweens names a value twice"]);
+    expect(withTweens("t")).toEqual(["trace.json: tweens must be a list of value names"]);
+    expect(withTweens([""])).toEqual(["trace.json: tweens must be a list of value names"]);
+  });
+
+  it("accepts extents as a map from a value to its edge and 2 or more distinct parts", () => {
+    const reads = demoTrace().channels.map((c) => c.read as string);
+    const withExtents = (extents: unknown) => checkTrace({ ...demoTrace(), extents }).shape;
+    expect(withExtents({ [reads[0]!]: { edge: "top", parts: ["a", "b"] } })).toEqual([]);
+    expect(withExtents({ [reads[0]!]: { edge: "height", parts: ["a", "b", "c"] }, other: { edge: "left", parts: ["a", "b"] } })).toEqual([]);
+    expect(withExtents({})).toEqual([]);
+    expect(withExtents(["top"])).toEqual(["trace.json: extents must map each value name to { edge, parts }"]);
+    expect(withExtents("top")).toEqual(["trace.json: extents must map each value name to { edge, parts }"]);
+    expect(withExtents({ v: { edge: "middle", parts: ["a", "b"] } })).toEqual(["trace.json: extents.v.edge must be one of top, bottom, left, right, width, height"]);
+    expect(withExtents({ v: { parts: ["a", "b"] } })).toEqual(["trace.json: extents.v.edge must be one of top, bottom, left, right, width, height"]);
+    expect(withExtents({ v: { edge: "top", parts: ["a"] } })).toEqual(["trace.json: extents.v.parts must list 2 or more distinct object names"]);
+    expect(withExtents({ v: { edge: "top", parts: ["a", "a"] } })).toEqual(["trace.json: extents.v.parts must list 2 or more distinct object names"]);
+    expect(withExtents({ v: { edge: "top", parts: ["a", ""] } })).toEqual(["trace.json: extents.v.parts must list 2 or more distinct object names"]);
+    expect(withExtents({ v: { edge: "top", parts: "ab" } })).toEqual(["trace.json: extents.v.parts must list 2 or more distinct object names"]);
+    expect(withExtents({ v: null })).toEqual(["trace.json: extents.v must be { edge, parts }"]);
+  });
+
   it("a stepped bar: the trace compares the drawings the original held, and suddenJumps judges them at the drawing rate", async () => {
     // gate-demo with its lift y drawn 12 times a second, and a trace recorded from those drawings.
     const html = demoFile("index.html").replace("return { y: -MOTION.lift.px * s,", "return { y: -MOTION.lift.px * share(Math.floor(T * 12 + 1e-9) / 12 % MOTION.loop.periodS),");

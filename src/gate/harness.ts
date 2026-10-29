@@ -49,6 +49,8 @@ export interface OpenOptions {
   seek?: boolean;
   /** Device pixels per CSS px for screenshots (default 1). The frame sheet uses 2, so a crop stays sharp. */
   pixelRatio?: number;
+  /** The viewport in CSS px (default: the browser's). Pages the gate opens from this one in its context share it. */
+  viewport?: { width: number; height: number };
   /** Live pages only: adds `ms` to every rAF timestamp and to `performance.now()` from frame `afterFrames + 1` on, once. */
   clockGap?: { afterFrames: number; ms: number };
   /**
@@ -89,15 +91,24 @@ export interface GatePage {
   /** Live pages: rAF callbacks the page ran from `ms` to `ms + windowMs` after the page's time origin, on the real clock. */
   rafCountAfter(ms: number, windowMs: number): Promise<number>;
   /**
-   * Live pages: waits until `framesAfterGap` frames ran after the clock gap, or the loop went quiet
+   * Live pages: first waits up to 250 ms for the first live frame (a loop a tap starts may run after the
+   * input has ended), then waits until `framesAfterGap` frames ran after the clock gap, or the loop went quiet
    * for 300 ms, or 5 s passed. Returns the values after each frame (`ms` is the rAF timestamp the page
    * saw) and the index of the first frame after the gap, or null when the gap never came.
    */
   liveFrames(framesAfterGap?: number): Promise<{ frames: Frame[]; gapIndex: number | null }>;
+  /**
+   * Live pages: the values after each frame the page logged from index `from` on, and the index to read from next. A read
+   * every few dozen ms can step over a value that moves for a frame or two; this one sees every frame.
+   */
+  liveLog(from: number): Promise<{ frames: Frame[]; next: number }>;
   close(): Promise<void>;
 }
 
 export const FRAME_MS = 1000 / 60;
+
+/** After the drive, `liveFrames` waits this long for the first live frame before it lets the loop count as quiet. */
+const FIRST_FRAME_WAIT_MS = 250;
 
 export type { InputSamples };
 
@@ -303,6 +314,7 @@ interface GateWindow {
     clock: {
       log: Frame[];
       gapIndex: number | null;
+      lastReal: number | null;
       settled(after: number): boolean;
       rafCount(from: number, windowMs: number): Promise<number>;
     };
@@ -317,6 +329,50 @@ interface GateWindow {
 }
 
 type RawReads = Pick<GatePage, "seek" | "state" | "frames" | "framesAt">;
+
+/** The times `from`, `from + step`, ... through `to`, as the page's `frames` steps them. */
+function gridTimes(from: number, to: number, step: number): number[] {
+  const times: number[] = [];
+  for (let i = 0; from + i * step <= to + 1e-9; i++) times.push(from + i * step);
+  return times;
+}
+
+/**
+ * The reads of a `?seek` page, each time read once. The page is a pure function of time and its fixed input, so its
+ * frame at a time is the same whenever it is read, and a gate that reads the same stretch again (each rule reads the
+ * whole span, and a rule re-reads a stretch to look closer) need not render it again: a frame costs the page its whole
+ * render, and the repeats were most of the time a heavy page took. A frame comes back as a copy, so a caller may change
+ * it. A read still leaves the page where it would have left it, at the last time asked for. A live page is not a
+ * function of time, and is not wrapped.
+ */
+function onceEach(reads: RawReads): RawReads {
+  const seen = new Map<number, Frame>();
+  /** The time the page stands at: the last it was seeked to, or null before any seek. */
+  let at: number | null = null;
+  const framesAt = async (times: number[]): Promise<Frame[]> => {
+    const missing = [...new Set(times.filter((t) => !seen.has(t)))];
+    if (missing.length > 0) {
+      const read = await reads.framesAt(missing);
+      missing.forEach((t, i) => seen.set(t, read[i]!));
+      at = missing[missing.length - 1]!;
+    }
+    const last = times[times.length - 1];
+    if (last !== undefined && at !== last) {
+      await reads.seek(last);
+      at = last;
+    }
+    return times.map((t) => structuredClone(seen.get(t)!));
+  };
+  return {
+    seek: async (ms) => {
+      await reads.seek(ms);
+      at = ms;
+    },
+    state: reads.state,
+    frames: (fromMs, toMs, stepMs = FRAME_MS) => framesAt(gridTimes(fromMs, toMs, stepMs)),
+    framesAt,
+  };
+}
 
 /** After the last frame asked for, the harness reads ahead until each stepped value has started this many more drawings... */
 const LOOKAHEAD_DRAWINGS = 4;
@@ -413,11 +469,7 @@ function steppedReads(raw: RawReads, names: string[], input: number[][] | null):
       return { ms, values: { ...values }, ...(boxes ? { boxes: { ...boxes }, scroll: scroll! } : {}) };
     });
   };
-  const grid0 = (from: number, to: number, step: number) => {
-    const times: number[] = [];
-    for (let i = 0; from + i * step <= to + 1e-9; i++) times.push(from + i * step);
-    return times;
-  };
+  const grid0 = gridTimes;
   const framesAt = async (times: number[]) => {
     const fs = await rawAt(times, true);
     if (input) await inputWindow();
@@ -450,7 +502,7 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
     browser = undefined;
     throw e;
   }
-  const context = await b.newContext({ reducedMotion: options.reducedMotion ? "reduce" : "no-preference", deviceScaleFactor: options.pixelRatio ?? 1 });
+  const context = await b.newContext({ reducedMotion: options.reducedMotion ? "reduce" : "no-preference", deviceScaleFactor: options.pixelRatio ?? 1, ...(options.viewport ? { viewport: options.viewport } : {}) });
   const cfg = { input: options.input, gap: options.clockGap ?? null };
   await context.addInitScript({ content: `${GATE_INIT}(${JSON.stringify(cfg)});` });
   const page = await context.newPage();
@@ -467,12 +519,13 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
     throw e;
   }
   // Each callback below runs in the page, so it reaches the gate through `window`, not a closure.
-  const raw: RawReads = {
+  const pageReads: RawReads = {
     seek: (ms) => page.evaluate((t) => (window as unknown as GateWindow).__gate.seek(t), ms),
     state: () => page.evaluate(() => (window as unknown as GateWindow).__gate.state()),
     frames: (fromMs, toMs, stepMs = FRAME_MS) => page.evaluate(([a, z, s]) => (window as unknown as GateWindow).__gate.frames(a, z, s), [fromMs, toMs, stepMs] as const),
     framesAt: (times) => page.evaluate((ts) => (window as unknown as GateWindow).__gate.framesAt(ts), times),
   };
+  const raw = options.seek === false ? pageReads : onceEach(pageReads);
   const inputRaw = options.steppedInputRaw && Array.isArray(options.input) && options.input.length > 0 ? (options.input as number[][]) : null;
   const stepped = options.seek !== false && (options.stepped ?? []).length > 0 ? steppedReads(raw, options.stepped!, inputRaw) : null;
   return {
@@ -486,6 +539,11 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
     console: () => [...messages],
     rafCountAfter: (ms, windowMs) => page.evaluate(([a, w]) => (window as unknown as GateWindow).__gate.clock.rafCount(a, w), [ms, windowMs] as const),
     async liveFrames(framesAfterGap = 10) {
+      // A loop a tap starts may run its first frame after the input that started it has ended, so the quiet
+      // test below must not pass before one frame has run. A page with no loop waits this long for nothing.
+      await page.waitForFunction(() => (window as unknown as GateWindow).__gate.clock.lastReal !== null, undefined, { timeout: FIRST_FRAME_WAIT_MS, polling: 10 }).catch((e: unknown) => {
+        if (!(e instanceof Error && e.name === "TimeoutError")) throw e;
+      });
       // A loop that never settles is read as it stands after 5 s. Any other error is real. The wait
       // polls on a timer: its default rAF polling would run through the wrapped rAF and count as frames.
       await page
@@ -498,6 +556,11 @@ export async function openPage(file: string, options: OpenOptions = {}): Promise
         return { frames: c.log, gapIndex: c.gapIndex };
       });
     },
+    liveLog: (from) =>
+      page.evaluate((i) => {
+        const log = (window as unknown as GateWindow).__gate.clock.log;
+        return { frames: log.slice(i), next: log.length };
+      }, from),
     close: () => context.close(),
   };
 }

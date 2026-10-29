@@ -62,9 +62,13 @@ export const CLUSTER_MANY = 3;
 export const TIGHT_SIDE = 0.25;
 /** ...plus this many px, for the rounding of a box's edges to pixels. */
 export const TIGHT_PX = 1;
-/** A listed cut must change more than this share of the viewport... */
+/**
+ * A listed cut is a scene change when it changes more than this share of the viewport... A cut that is not one is a
+ * small cut: it passes when it changes something and no more of its changed pixels than DRAWN_STRAY allows lie outside
+ * every object, in the cut's pair and in the step into it.
+ */
 export const CUT_SHARE = 0.5;
-/** ...or more than this many times the most pixels any other pair changes. */
+/** ...or more than this many times the most pixels any other pair changes (when any does change). */
 export const CUT_TIMES = 3;
 /**
  * Pages that shoot at once. A screenshot waits for the page's next frame, so shots taken one after another on one page
@@ -513,12 +517,17 @@ function fadeRef(frames: Frame[], o: Obj, from: number, dir: number, gone: numbe
  *   object in none passes when, over the pairs where it truly changed and is judged, each of those edges is reached
  *   in some pair. A pair where it holds no changed pixel tells nothing.
  * - **Cuts.** A listed cut is read over two frame steps: its pair, and the step into the pair's first frame, since a
- *   page may switch its scene at the cut or after it. The larger change of the two must be more than CUT_SHARE of the
- *   viewport, or more than CUT_TIMES the most pixels any other pair changes. Neither step is judged for anything else,
- *   whichever pair it is sampled as, and neither sets that most.
+ *   page may switch its scene at the cut or after it. A cut is a scene change when the larger change of the two is more
+ *   than CUT_SHARE of the viewport, or more than CUT_TIMES the most pixels any other pair changes (the ratio is not
+ *   used on a page where no other pair changes at all). Neither step is
+ *   judged for anything else, whichever pair it is sampled as, and neither sets that most. Any other cut is a small
+ *   cut (a part that snaps into a slot, a light that flips, a panel that appears in one frame): it passes when it
+ *   changes some pixels and, in each of the two steps, the pixels outside every object are no more than DRAWN_STRAY of
+ *   those changed and DRAWN_STRAY_PX (the objects counted are the ones that changed in that step, in both of its
+ *   frames: the frame before the cut and the cut frame). A small cut on a page that reports no objects is not read (a known gap: reading it would turn red the tracked bars that declare cuts and report no objects, until they report objects).
  *
  * Each cause prints its first pair: one line for pixels outside the objects, one per object that moves with nothing
- * drawn, one per object whose box is bigger than what it draws, and one per cut that changes little.
+ * drawn, one per object whose box is bigger than what it draws, and one per cut that is neither.
  */
 export async function drawnRead(page: GatePage, ctx: DrawnContext): Promise<{ lines: string[]; pairs: DrawnPair[]; notes: string[] }> {
   const none = { lines: [], pairs: [], notes: [] };
@@ -631,8 +640,19 @@ export async function drawnRead(page: GatePage, ctx: DrawnContext): Promise<{ li
     if (p.event !== "cut") return;
     const into = before.findIndex((b) => b.i === i);
     const n = Math.max(counted[i]!.changed, into < 0 ? 0 : counted[picks.length + refs.length + into]!.changed);
-    if (n > CUT_SHARE * vw * vh || n > CUT_TIMES * most) return;
-    lines.push(`drawn: the cut at ${round(p.cut!)} ms changes ${Math.round((1000 * n) / (vw * vh)) / 10}% of the view; a cut is a scene change`);
+    // The ratio needs something to compare with: on a page where no other pair changes, `most` is 0 and every change
+    // would be 3 times it, so a quiet page's cut is a scene change only by its share of the view.
+    if (n > CUT_SHARE * vw * vh || (most > 0 && n > CUT_TIMES * most)) return;
+    const share = Math.round((1000 * n) / (vw * vh)) / 10;
+    // A small cut: the pixels it changes lie inside the objects, in its pair and in the step into it.
+    const steps = [counted[i]!, ...(into < 0 ? [] : [counted[picks.length + refs.length + into]!])];
+    const stray = Math.max(...steps.map((c) => (c.stray > DRAWN_STRAY * c.changed || c.stray > DRAWN_STRAY_PX ? c.stray : 0)));
+    if (n > 0 && stray === 0) return;
+    lines.push(
+      stray > 0
+        ? `drawn: the cut at ${round(p.cut!)} ms changes ${share}% of the view, ${stray} px of it outside every object; a cut that is not a scene change changes only what the objects cover`
+        : `drawn: the cut at ${round(p.cut!)} ms changes ${share}% of the view; a cut is a scene change`,
+    );
   });
   const pairs = picks.map((p, i) => ({ a: frames[p.k]!.ms, b: frames[p.k + p.m]!.ms, moved: judged[i]!.movers.map((m) => m.name), event: p.event }));
   return { lines, pairs, notes };

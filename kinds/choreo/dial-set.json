@@ -1,0 +1,6 @@
+[
+  { "name": "choreo.stagger", "unit": "s", "meaning": "The gap between one element starting and the next one starting." },
+  { "name": "choreo.move", "unit": "s", "meaning": "How long one element takes to travel from its start to its stop." },
+  { "name": "choreo.fade", "unit": "s", "meaning": "How long one element takes to change its color or opacity from the old value to the new one." },
+  { "name": "choreo.smooth", "unit": "s", "meaning": "How far a followed value (a camera pan, a zoom, a fade) lags behind its target, as a time constant." }
+]

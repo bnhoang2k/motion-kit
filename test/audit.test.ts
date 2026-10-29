@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { audit, literalExemption } from "../src/gate/audit.ts";
+import { base } from "./knob-base.ts";
 
 const KIND = '<meta name="motion-kit-kind" content="idle">';
-const BAR = '<meta name="motion-kit-bar" content="31-breath-pacer">';
+const BAR = '<meta name="motion-kit-bar" content="99-fake-loop">';
 const page = (head: string, script: string, extra = "") => `<!doctype html><html><head>${head}${extra}</head><body><div id="dot"></div><script>\n${script}\n</script></body></html>`;
 
 const KNOBS = `/* motion-kit:knobs */
@@ -132,19 +133,19 @@ describe("the static audit", () => {
     const bar31 = page(BAR, MOTION);
 
     it("exempts a copy of a kit bar: its slug, and the same MOTION block byte for byte", () => {
-      expect(literalExemption(bar31, kit({ "31-breath-pacer": bar31 }))).toEqual({ exempt: true });
+      expect(literalExemption(bar31, kit({ "99-fake-loop": bar31 }))).toEqual({ exempt: true });
     });
 
     it("runs the check, with a note, on a page whose MOTION block differs", () => {
       const adapted = page(BAR, "const MOTION = { loopS: 5 };");
-      expect(literalExemption(adapted, kit({ "31-breath-pacer": bar31 }))).toEqual({
+      expect(literalExemption(adapted, kit({ "99-fake-loop": bar31 }))).toEqual({
         exempt: false,
-        note: "note: the literal check runs: the page's MOTION block differs from bars/31-breath-pacer/index.html, so the page is adapted, not a copy",
+        note: "note: the literal check runs: the page's MOTION block differs from bars/99-fake-loop/index.html, so the page is adapted, not a copy",
       });
     });
 
     it("runs the check, with a note, on a page that names a bar the kit does not have", () => {
-      expect(literalExemption(bar31, kit({}))).toEqual({ exempt: false, note: "note: the literal check runs: the page names bar 31-breath-pacer, and motion-kit has no bars/31-breath-pacer/" });
+      expect(literalExemption(bar31, kit({}))).toEqual({ exempt: false, note: "note: the literal check runs: the page names bar 99-fake-loop, and motion-kit has no bars/99-fake-loop/" });
       const odd = page('<meta name="motion-kit-bar" content="../x">', MOTION);
       const seen: string[] = [];
       expect(literalExemption(odd, (s) => (seen.push(s), bar31)).exempt).toBe(false);
@@ -152,18 +153,18 @@ describe("the static audit", () => {
     });
 
     it("runs the check with no note on a page with no bar marker", () => {
-      expect(literalExemption(page(KIND, MOTION), kit({ "31-breath-pacer": bar31 }))).toEqual({ exempt: false });
+      expect(literalExemption(page(KIND, MOTION), kit({ "99-fake-loop": bar31 }))).toEqual({ exempt: false });
     });
   });
 
   it("reports each KNOBS value's distance from its base, as information", () => {
     const html = page(KIND, KNOBS);
-    expect(audit(html)).toEqual({ failures: [], distances: ["idle.period 6.0 s, 50% above base (31-breath-pacer: 4.0 s)"] });
+    expect(audit(html)).toEqual({ failures: [], distances: [`idle.period 6.0 s, 50% above base ${base("idle.period", "4.0 s")}`] });
   });
 
   it("reads a hand-edited KNOBS block, and fails one that holds an unknown knob", () => {
     const edited = page(KIND, "const KNOBS = { idle: { period: 4, }, };");
-    expect(audit(edited)).toEqual({ failures: [], distances: ["idle.period 4.0 s, at base (31-breath-pacer: 4.0 s)"] });
+    expect(audit(edited)).toEqual({ failures: [], distances: [`idle.period 4.0 s, at base ${base("idle.period", "4.0 s")}`] });
     const unknown = page(KIND, 'const KNOBS = { "idle": { "speed": 2 } };');
     expect(audit(unknown).failures).toEqual(["audit: line 2: KNOBS.idle.speed: unknown knob: idle.speed"]);
   });

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="choreo">
+<title>choreo: a tap fades a bar in, then it glows, and reduced motion shows it</title>
+<style>html { background: #fff } body { margin: 0 } .b { position: fixed; width: 60px; height: 60px; border-radius: 50%; background: #333 }</style>
+</head>
+<body>
+<script>
+const MOTION = { maxStepS: 0.05, reducedD: 10 };
+const UNITS = { x0: "px", x1: "px", o: "opacity" };
+const stillO = 1;
+// A tap shakes two bars out and back over 1.4 s each, the second 0.3 s after the first (reduced motion skips the shakes, since they end where they began), and fades a third bar in over 0.6 s,
+// which then glows between 1 and 0.9 every 2 s. Under reduced motion it shows its end state.
+const rm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function valuesAt(d) {
+  const t = d === null ? 0 : d;
+  const fade = Math.min(1, t / 0.6), glow = t < 0.6 ? 0 : (1 - Math.cos((2 * Math.PI * (t - 0.6)) / 2)) / 2;
+  const shake = (k) => (rm || d === null || d < 0.3 * k || d >= 0.3 * k + 1.4 ? 0 : (60 * (1 - Math.cos((2 * Math.PI * (d - 0.3 * k)) / 1.4))) / 2);
+  const o = rm && d !== null ? stillO : (1 - Math.cos(Math.PI * fade)) / 2 * (1 - 0.1 * glow);
+  return { x0: shake(0), x1: shake(1), o };
+}
+</script>
+<script src="value-at.js"></script>
+</body>
+</html>

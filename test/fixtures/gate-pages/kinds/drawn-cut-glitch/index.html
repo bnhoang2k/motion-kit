@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="drawn-cut-glitch">
+<title>bar: drawn-cut-glitch</title>
+<style>html { background: #fff } html.after { background: #556 } body { margin: 0 } #dot { position: fixed; left: 600px; top: 320px; width: 40px; height: 40px; border-radius: 50%; background: #333; box-shadow: 0 0 3px rgba(0, 0, 0, 0.35) } #glitch { display: none; position: fixed; left: 900px; top: 100px; width: 24px; height: 24px; background: #c33 } #slab { position: fixed; left: 160px; top: 440px; width: 300px; height: 160px; background: #a64 }</style>
+</head>
+<body>
+<div id="slab"></div>
+<div id="dot"></div>
+<div id="glitch"></div>
+<script>
+// The drawn check: a copied bar whose trace.json lists a cut at 1 s, where the dot jumps 120 px right and a 24 px square no object reports appears beside it, while a slab slides out and back each loop.
+window.VARIANT = "cut-glitch";
+</script>
+<script src="../drawn.js"></script>
+</body>
+</html>

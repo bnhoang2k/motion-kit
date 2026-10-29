@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-bar" content="two-taps-panel">
+<title>two taps</title>
+<style>html { background: #fff } body { margin: 0; width: 100vw; height: 100vh } #card { position: fixed; left: 600px; top: 330px; width: 80px; height: 60px; background: #ddd }
+#panel { position: fixed; left: 0; top: 0; width: 200px; height: 120px; background: #345 }
+#min { position: fixed; left: 0; top: 0; width: 40px; height: 40px; background: #c33;  }
+#cap { position: fixed; left: 300px; top: 500px; width: 200px; height: 20px; background: #000 }
+#strip { position: fixed; left: 300px; top: 560px; width: 200px; height: 10px; background: #08f }
+</style>
+</head>
+<body>
+<div id="card"></div><div id="panel"></div><div id="min"></div><div id="cap"></div><div id="strip"></div>
+<script>
+
+const X_DUR = 1, C_AT = 0.2, Y_AT = 0.45, DOCK = 60;
+const FAULT = "";
+
+const $ = (id) => document.getElementById(id);
+window.PAGE = {
+  names: ["x", "c", "y"], units: { x: "px", c: "opacity", y: "opacity" },
+  
+  
+  init(S) { S.open = false; },
+  onPress(S, t, target, px, py, G) {
+    const mid = G.playing(t);
+    if (target && target.id === "min") {
+      
+      if (FAULT === "freeze" && mid) { for (const n of ["x", "c", "y"]) G.tween(S, n, G.valueAt(n, t), t, 0); return; }
+      G.tween(S, "x", DOCK, t, 0.4 * Math.abs(G.valueAt("x", t) - DOCK) / 300 + 0.05);
+      
+      return;
+    }
+    S.open = !S.open;
+    const to = S.open ? 1 : 0;
+    if (mid) { for (const n of ["x", "c", "y"]) G.tween(S, n, to * (n === "x" ? 300 : 1), t, n === "x" ? Math.max(0.1, X_DUR * Math.abs(to * 300 - G.valueAt("x", t)) / 300) : 0.3); return; }
+    G.tween(S, "x", to * 300, t, X_DUR);
+    G.tween(S, "c", to, t + (G.reduced ? 0 : C_AT), 0.3);
+    G.tween(S, "y", to, t + (G.reduced ? 0 : Y_AT), 0.3);
+  },
+  render(v, S, t) {
+    $("panel").style.transform = `translate(${300 + v.x}px, 300px)`;
+    const m = $("min");
+    m.style.transform = `translate(${490 + v.x - 20}px, 340px)`;
+    m.style.visibility = v.x > 1 ? "visible" : "hidden";
+    $("cap").style.opacity = v.c;
+    $("strip").style.opacity = v.y;
+    
+  },
+};
+</script>
+<script src="../panels.js"></script>
+</body>
+</html>

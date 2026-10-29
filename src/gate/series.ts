@@ -1,3 +1,4 @@
+import { TOLERANCE_FLOORS } from "../core/trace.ts";
 import type { Frame } from "./harness.ts";
 
 /** A value that holds still for this many frame steps is at rest. */
@@ -43,6 +44,10 @@ export function robustRange(vs: number[]): number {
 /** A change smaller than this does not count as motion for a value with this range. */
 export const stillEps = (range: number) => Math.max(1e-9, 1e-4 * range);
 
+/** A value's tolerance floor: its unit's floor (TOLERANCE_FLOORS), or 1% of its range for a unit with none. */
+export const unitFloor = (unit: string | undefined, range: number): number =>
+  unit !== undefined && Object.hasOwn(TOLERANCE_FLOORS, unit) ? TOLERANCE_FLOORS[unit]! : 0.01 * range;
+
 /** The still tolerance of a value's series: stillEps of its robustRange, so one wild frame cannot set it. */
 export const stillTol = (vs: number[]) => stillEps(robustRange(vs));
 
@@ -57,4 +62,73 @@ export function lastMoveMs(frames: Frame[], ignore: Set<string> = new Set()): nu
     if (names.some((n) => Math.abs((frames[i + 1]!.values[n] ?? 0) - (frames[i]!.values[n] ?? 0)) > eps.get(n)!)) return frames[i + 1]!.ms;
   }
   return null;
+}
+
+/** A value moves at one steady speed when its frame steps over this long, at the end of the frames read, are all alike. */
+export const STEADY_MS = 500;
+/** ...alike meaning each within this share of the median step (or stillEps of the window's own range, when that is larger). */
+export const STEADY_SHARE = 0.01;
+
+/**
+ * The frame step of a value that moves at one steady speed (a marquee, a strip that drifts), or null when it does not:
+ * every step over the last STEADY_MS of `frames` is within `max(stillEps(window range), STEADY_SHARE of the median step)`
+ * of the median step, and the median is above stillEps of the value's range over all the frames. The steadiness is
+ * judged on the window alone, so a value that slows down (a long tail of a big move) is no steady speed however large
+ * its whole-series range is: a lead-in move, a hand that holds the value, or an ease back to the drift does not matter,
+ * only the end does. With `sinceMs`, the window starts there when that is earlier than the last STEADY_MS: the value must
+ * hold its speed from `sinceMs` to the end of the frames. Frames that do not cover STEADY_MS, or a frame in the window
+ * without the value, give null.
+ */
+export function steadyStep(frames: Frame[], name: string, sinceMs?: number): number | null {
+  const v = series(frames, name);
+  const end = frames[frames.length - 1]?.ms;
+  if (end === undefined || frames[0]!.ms > end - STEADY_MS + 1e-6) return null;
+  const from = frames.findIndex((f) => f.ms >= Math.min(end - STEADY_MS, sinceMs ?? Number.POSITIVE_INFINITY) - 1e-6);
+  const window = v.slice(from);
+  const steps = window.slice(1).map((x, i) => x - window[i]!);
+  if (steps.length === 0 || !steps.every(Number.isFinite)) return null;
+  const sorted = [...steps].sort((a, b) => a - b);
+  const median = sorted.length % 2 === 1 ? sorted[(sorted.length - 1) / 2]! : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
+  if (!(Math.abs(median) > stillEps(rangeOf(v)))) return null;
+  const tol = Math.max(stillEps(rangeOf(window)), STEADY_SHARE * Math.abs(median));
+  return steps.every((d) => Math.abs(d - median) <= tol) ? Math.abs(median) : null;
+}
+
+/**
+ * Whether `name` never moves faster than `step` a frame in `frames` (by more than STEADY_SHARE of it, plus stillEps of
+ * its range). A value that only speeds up to a steady speed (a ramp-in, a hand's hold that lets go) has come from rest
+ * onto its drift; one that slides on faster than it then drifts (an entrance) has come to it.
+ */
+export function neverFasterThan(frames: Frame[], name: string, step: number): boolean {
+  const v = series(frames, name);
+  const limit = step * (1 + STEADY_SHARE) + stillEps(rangeOf(v));
+  return v.slice(1).every((x, i) => !(Math.abs(x - v[i]!) > limit));
+}
+
+/**
+ * Whether `name` was already moving at the steady speed `step` (steadyStep's, in the direction the value ends moving)
+ * before `ms`: the frame step just before `ms` is within steadyStep's tolerance of `step`. A value at rest, one that moved
+ * another way, or one that was still speeding up or breathing back and forth before `ms` was not moving at that speed.
+ */
+export function movedAtSpeedBefore(frames: Frame[], name: string, ms: number, step: number): boolean {
+  const v = series(frames, name);
+  let i = frames.length - 1;
+  while (i >= 0 && frames[i]!.ms >= ms - 1e-6) i--;
+  if (i < 1 || v.length < 2) return false;
+  const dir = Math.sign(v[v.length - 1]! - v[v.length - 2]!);
+  const last = dir * (v[i]! - v[i - 1]!);
+  return Number.isFinite(last) && Math.abs(last - step) <= Math.max(stillEps(rangeOf(v)), STEADY_SHARE * step);
+}
+
+/**
+ * Whether `name` ends at the same steady speed in `quiet` as in `frames` (the speed `step` is steadyStep's of `frames`): its
+ * steadyStep in `quiet` is within STEADY_SHARE of `step`, and it moves the same way. `quiet` is the page read with no input,
+ * so a value that moves like this with or without the input was not started by the input.
+ */
+export function sameSteadyStep(quiet: Frame[], frames: Frame[], name: string, step: number): boolean {
+  const there = steadyStep(quiet, name);
+  if (there === null) return false;
+  const [a, b] = [series(quiet, name), series(frames, name)];
+  const way = (v: number[]) => Math.sign(v[v.length - 1]! - v[v.length - 2]!);
+  return way(a) === way(b) && Math.abs(there - step) <= Math.max(stillEps(rangeOf(b)), STEADY_SHARE * step);
 }

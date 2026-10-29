@@ -1,0 +1,4 @@
+[
+  { "name": "sim.delay", "unit": "s", "meaning": "The wait from the cause (a tap, a scroll, the page load) to the first body moving." },
+  { "name": "sim.grow", "unit": "ratio per frame", "meaning": "The share of the gap to full size a new body closes each frame as it grows." }
+]

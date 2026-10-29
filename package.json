@@ -1,6 +1,6 @@
 {
   "name": "motion-kit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "One set of motion numbers for Motion, three.js and Blender.",
   "private": true,
   "type": "module",
@@ -31,7 +31,8 @@
     "bars/INDEX.md",
     "bars/moments.json",
     "kinds/*/rules.md",
-    "kinds/*/dials.json"
+    "kinds/*/dials.json",
+    "kinds/*/dial-set.json"
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node scripts/copy-lab-assets.mjs",

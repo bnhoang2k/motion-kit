@@ -64,7 +64,27 @@ export interface TraceJson {
    * page reports each one.
    */
   stepped?: string[];
+  /**
+   * Names of page values that act out a control's meaning with a keyframe tween beside the bodies (a tile that bobs or
+   * shakes as it is tapped). The sim gate's `energyFalls` leaves them out, since a CSS ease segment ends at zero
+   * speed and the next starts at 0.4 of its mean speed, which reads as a bounce that rises. The kind gate's `tweens`
+   * rule checks that each is a value the page reports, that it changes, and that after every cause it ends where it
+   * was just before and holds there.
+   */
+  tweens?: string[];
+  /**
+   * Page values that are an edge of many moving parts, such as the box around 24 cards on one canvas: `{ [value]: { edge,
+   * parts } }`, `edge` one of top, bottom, left, right, width and height, and `parts` the names of 2 or more objects in
+   * `__state().objects`. Such a value turns when another part becomes the extreme one, not because a body passes its rest,
+   * so the kind gate's envelope leaves out its pulse attack and its `overshoot` rule leaves it out. The kind gate's
+   * `extents` rule checks that in every frame the value is that edge of the union of the drawn parts' boxes, and that the
+   * parts are a group.
+   */
+  extents?: Record<string, { edge: string; parts: string[] }>;
 }
+
+/** The edges of a union of boxes a value in `extents` may be. */
+const EXTENT_EDGES = ["top", "bottom", "left", "right", "width", "height"];
 
 /** An event lands within 1 frame of its trace time. */
 export const EVENT_MS = 17;
@@ -159,6 +179,21 @@ export function checkTrace(value: unknown): { trace: TraceJson | undefined; shap
   if (value.stepped !== undefined) {
     if (!(Array.isArray(value.stepped) && value.stepped.every((n) => typeof n === "string" && n !== ""))) p("stepped must be a list of value names");
     else if (new Set(value.stepped).size !== value.stepped.length) p("stepped names a value twice");
+  }
+  if (value.tweens !== undefined) {
+    if (!(Array.isArray(value.tweens) && value.tweens.every((n) => typeof n === "string" && n !== ""))) p("tweens must be a list of value names");
+    else if (new Set(value.tweens).size !== value.tweens.length) p("tweens names a value twice");
+  }
+  if (value.extents !== undefined) {
+    if (!isObj(value.extents)) p("extents must map each value name to { edge, parts }");
+    else
+      for (const [name, e] of Object.entries(value.extents)) {
+        if (!isObj(e)) p(`extents.${name} must be { edge, parts }`);
+        else {
+          if (typeof e.edge !== "string" || !EXTENT_EDGES.includes(e.edge)) p(`extents.${name}.edge must be one of ${EXTENT_EDGES.join(", ")}`);
+          if (!(Array.isArray(e.parts) && e.parts.every(isText) && new Set(e.parts).size >= 2 && new Set(e.parts).size === e.parts.length)) p(`extents.${name}.parts must list 2 or more distinct object names`);
+        }
+      }
   }
   return { trace: shape.length === 0 ? (value as unknown as TraceJson) : undefined, shape, tolerance };
 }

@@ -49,11 +49,14 @@
 //   middle half of the track only, and teleports back each time.
 // - "fat-jump": the honest dot, drawn 60 px ahead for one frame of each lift (its fastest step), with its box for that
 //   frame grown 200 px on every side.
-// - "cut-weak": the "cut" page, but at 1 s only the dot jumps 120 px right (x).
+// - "cut-glitch": the "cut-weak" page, and at the cut a 24 px square no object reports appears beside it.
+// - "cut-unowned": at 1 s only that square appears; the dot, the only object that could cover it, does not move.
+// - "cut-none": a bar that lists a cut at 1 s where nothing changes, while a slab slides out and back each loop.
+// "cut-weak" is not a fault: the dot's jump lies inside its own boxes, so the cut is a small cut within the objects.
 const VARIANT = window.VARIANT || "";
 const SLOW = VARIANT === "slow" || VARIANT === "slow-ghost";
 const VANISH = VARIANT === "vanish" || VARIANT === "vanish-unread";
-const CUT = VARIANT === "cut" || VARIANT === "cut-weak" || VARIANT === "cut-early";
+const CUT = VARIANT.startsWith("cut");
 const MOTION = {
   periodS: 1.6,     // the loop
   riseAtS: 0.6,     // each cycle: the lift starts
@@ -101,7 +104,7 @@ const MOTION = {
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const seekMode = new URLSearchParams(location.search).has("seek");
 const $ = (id) => document.getElementById(id);
-const [dot, bg, square, icon, badge, cursor, field, body, arm, card, mover, band, sky, slab] = ["dot", "bg", "square", "icon", "badge", "cursor", "field", "body", "arm", "card", "mover", "band", "sky", "slab"].map($);
+const [dot, bg, square, icon, badge, cursor, field, body, arm, card, mover, band, sky, slab, glitch] = ["dot", "bg", "square", "icon", "badge", "cursor", "field", "body", "arm", "card", "mover", "band", "sky", "slab", "glitch"].map($);
 // A fixed sequence of numbers in [0, 1), so the sky is the same on every load.
 const rand = (i) => { const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
 const eis = (p) => (1 - Math.cos(Math.PI * Math.min(1, Math.max(0, p)))) / 2;
@@ -132,7 +135,7 @@ function valuesAt(T) {
     v.p = reduced ? 0.5 : 0.5 + 0.25 * Math.sin((2 * Math.PI * T) / MOTION.periodS);
   }
   if (slab) v.sx = reduced ? 0 : MOTION.slabPx * (eis((ph - MOTION.slabAtS) / MOTION.slabS) - eis((ph - MOTION.slabAtS - 2 * MOTION.slabS) / MOTION.slabS));
-  if (VARIANT === "cut-weak") v.x = reduced || T > MOTION.cutS + 0.001 ? MOTION.jumpPx : 0;
+  if (VARIANT === "cut-weak" || VARIANT === "cut-glitch") v.x = reduced || T > MOTION.cutS + 0.001 ? MOTION.jumpPx : 0;
   return v;
 }
 const frac = (x) => x - Math.floor(x);
@@ -198,6 +201,7 @@ function draw() {
   if (band) band.style.transform = `translateX(${v.bx}px)`;
   if (slab) slab.style.transform = `translateX(${v.sx}px)`;
   if (CUT) document.documentElement.classList.toggle("after", (VARIANT === "cut" && T > MOTION.cutS + 0.001) || (VARIANT === "cut-early" && T >= MOTION.cutS - 0.001));
+  if (glitch) glitch.style.display = T > MOTION.cutS + 0.001 ? "block" : "none";
   if (sky) drawSky(T);
   if (field) {
     if (field.children.length === 0) for (let i = 0; i < MOTION.specks; i++) field.appendChild(document.createElement("i"));

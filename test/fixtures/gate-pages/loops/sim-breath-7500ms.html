@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="motion-kit-kind" content="sim">
+<title>sim: a tap slides two bars and starts a 7.5 s breath</title>
+<style>html { background: #fff } body { margin: 0 } .box { position: fixed; left: 45vw; width: 120px; height: 80px; background: #333; border-radius: 12px }</style>
+</head>
+<body>
+<script>
+const MOTION = { maxStepS: 0.05, turn: 6.283185307179586, travelPx: 200, slideS: 0.4, staggerS: 0.12, periodS: 7.5, amp: 0.03 };
+const slide = (s, d) => MOTION.travelPx * (1 - (1 - Math.min(1, Math.max(0, s - d) / MOTION.slideS)) ** 3);
+window.F = (s) => ({ s0: slide(s, 0), s1: slide(s, MOTION.staggerS), v: 1 + MOTION.amp * Math.sin(MOTION.turn * s / MOTION.periodS) });
+window.STILL = (s) => ({ s0: MOTION.travelPx, s1: MOTION.travelPx, v: 1 });
+window.UNITS = { s0: "px", s1: "px", v: "scale" };
+window.FOREVER = true;
+</script>
+<script src="curve.js"></script>
+</body>
+</html>
