@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Motion Lab</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1>Motion Lab</h1>
+      <span id="project" class="meta"></span>
+      <div class="spacer"></div>
+      <label class="switch"><input type="checkbox" id="reduced" /> Reduced motion</label>
+      <button id="server" type="button">Server event</button>
+      <button id="save" type="button" class="primary">Save</button>
+    </header>
+    <nav id="moments" class="seg" aria-label="Moment" data-ui-actions></nav>
+    <main class="grid">
+      <section id="lanes" aria-label="Feels" data-ui-align="start"></section>
+      <aside id="editor" aria-label="Edit move"></aside>
+    </main>
+    <section id="engines" class="engines" aria-label="Engines" data-ui-align="start"></section>
+    <p id="status" class="meta status" role="status"></p>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
