@@ -19,13 +19,14 @@ export function mountEditor(root: HTMLElement, s: EditorState, onEdit: OnEdit, o
   const m = s.feel.moves[s.move];
   root.replaceChildren();
   const h = document.createElement("h2");
-  h.textContent = `${s.feelName} · ${s.move}`;
   root.append(h);
 
   const redraws: (() => void)[] = [];
   const redraw = () => {
     for (const r of redraws) r();
   };
+
+  redraws.push(() => (h.textContent = `${s.move} · ${m.visualDuration.toFixed(2)} s · bounce ${m.bounce.toFixed(2)}`));
 
   const slider = (label: string, get: () => number, [lo, hi]: readonly [number, number], path: EditPath, fmt: (v: number) => string, step = 0.01) => {
     const row = document.createElement("label");

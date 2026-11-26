@@ -46,6 +46,17 @@ The page caps one time step, so a long frame gap cannot throw its motion.
   motion, from its first sample to one frame after its last: the sequence a tap starts is judged,
   however late a piece in it starts. A start inside the frames the rules read is followed on to its
   rest, up to 1 s past them.
+- On an idle page, a value that never comes to rest (see "Overshoot") holds still for 2 frames by the
+  stillness of its own motion after its first 2 s, not of its whole range: a big ease or spring at
+  load would make a slow float's gentle turns read as holds, and each turn as a slow pulse. A pause
+  of 100 ms or more, by its whole range's stillness, also starts a move, judged by that stillness: a
+  pause that creeps too slowly to see is a pause, so a snap or a slow pulse after it fails. An opacity
+  value and a stepped value keep the tolerance of their whole range. Known limits, from a blind review
+  of 45 pages: a drift whose turns stop dead (each leg a cubic ease in and out) holds for 2 frames at
+  each turn, so its next leg may read as a slow pulse, with or without an ease at load; a drift that
+  holds once for 300 ms or more rests, keeps its whole range's stillness, and an ease at load may
+  again make a turn read as a slow pulse; and a pulse after a hold of 1 frame may not be found, as on
+  any page.
 - A pop is one 1/60 s frame that covers more than half of a start's whole change: the farthest
   the value goes, either way, before it rests (so a small anticipation dip before a move is not the
   move). Setting a value in one frame is a pop. A steady linear move is not. A move that comes back to
@@ -646,6 +657,22 @@ where it comes to rest and come back, and opacity never does.
   loader's squash, a relay of hops, a breath, a badge that springs in. A one-time spring at load, an
   endless bounce that never holds still, and a loop that pops still fail. Opacity never overshoots,
   in a loop too.
+- On an idle page, a value that is no loop and never comes to rest has no rest to pass: wind on a
+  treetop, water, a cloud, a float of two sines or of noise. It never comes to rest when, once it first
+  moves, it never holds still for 300 ms, read against the stillness of its own motion after its first
+  2 s (its lead-in): a slow float's gentle turn, or a big ease at load, makes no rest. Its turns are
+  not judged, but those in its lead-in that pass outside the range its run covers after the lead-in,
+  its steady trend taken out, by more than a quarter of that range, when the run goes on at least 2 s
+  past its lead-in: a spring at load that runs into the drift, or into a creep of 6 px a second, fails.
+  Known limits, from a blind review of 54 pages: a spring inside the drift after its lead-in passes,
+  however large, when the drift is as wide (a 50 px jump that springs 40% past, in a drift of 40 px);
+  a spring so lightly damped that it rings past the read (damping ratio 0.03 or less) passes, as it
+  passes the rest rule; an endless bounce whose timing wanders, so the loop sort finds no period,
+  passes, while one that keeps time fails as a loop; a spring at load into a creep of 2 px a second
+  passes, as it did before, since its move never stops; a drift that starts 10 s or more after load
+  is judged by the few seconds it runs and may fail; wind that truly stops for 300 ms or more is
+  judged as moves up to that stop; and an opacity value gets no such pass (a flicker that never
+  rests fails).
 - On a choreo or sim page, the lead-in of a loop a cause started (the value did not move before that
   cause) is a move the person caused: it may pass its rest from the cause until the lead-in ends, as a
   spring does. A loop that moves before the first cause is the page's own, and a tap in its lead-in

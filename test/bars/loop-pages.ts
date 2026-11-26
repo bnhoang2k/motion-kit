@@ -15,7 +15,10 @@ export type LoopShape =
   | "ballDrop" | "antic" | "linearHold" | "marquee" | "marqueeSlow" | "marqueeFast" | "marqueeRamp" | "entranceBlank" | "entranceDrift10" | "entranceDrift30" | "sineBreath" | "fadeInGlow"
   | "bounce" | "overcap" | "springOnce" | "pops" | "drift" | "shimmerOver" | "lateSpring" | "latePop" | "lateSettle" | "latePopLoop" | "reducedLate"
   | "stepOnRebound" | "stepOnReboundLoop" | "homeSettle"
-  | "bobJitter" | "breathJitter" | "marqueeEase1" | "bobSinks" | "pulseGrows" | "shimmerFades";
+  | "bobJitter" | "breathJitter" | "marqueeEase1" | "bobSinks" | "pulseGrows" | "shimmerFades"
+  | "floatSines" | "floatNoise" | "windSway" | "floatSlow" | "slowCloud" | "easeIntoDrift"
+  | "springIntoFloat" | "springIntoWind" | "floatThenSettle" | "springIntoCreep" | "easeIntoDriftPulse"
+  | "creepPauseDriftPulse" | "stutterIntoDrift";
 /** `stillAt`, when set, moves the reduced-motion still moment to that share of the period (0: the start state). */
 export type LoopSpec = { shape: LoopShape; periodS: number; leadS: number; stillAt?: number };
 
@@ -32,6 +35,12 @@ const settle = (p, os) => { p = clamp01(p); return p < 0.5 ? (1 + os) * eis(2 * 
 const keys = (e) => (t, ks) => { if (t <= ks[0][0]) return ks[0][1]; for (let i = 1; i < ks.length; i++) if (t <= ks[i][0]) { const [a, va] = ks[i - 1], [b, vb] = ks[i]; return va + (vb - va) * e((t - a) / (b - a)); } return ks[ks.length - 1][1]; };
 const K = keys(eis), L = keys(clamp01);
 // A ball that hops from the ground (0) to each height in turn (y up is negative), gravity g px/s^2, then rests.
+// Smooth 1D gradient noise, about -0.5 to 0.5: a hashed slope at each whole number, faded between them.
+const hash1 = (i) => { let h = Math.imul(i ^ 0x9e3779b9, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return ((h >>> 0) / 4294967296) * 2 - 1; };
+const noise1 = (x) => { const i = Math.floor(x), f = x - i, u = f * f * f * (f * (f * 6 - 15) + 10); return hash1(i) * f * (1 - u) + hash1(i + 1) * (f - 1) * u; };
+// Wind as a tree's top moves in it: a gust from noise that leans downwind on average, turbulence, a branch's own beat,
+// and a leaf that rocks harder in a gust. P scales its time.
+const wind = (t, P, size) => { const g = noise1((0.5 * t) / P) + 0.6; return { x: size * (30 * g + 10 * noise1(t / P + 17) + 6 * g * Math.sin((2 * Math.PI * 0.42 * t) / P)), y: size * (12 * g + 4 * noise1(t / P + 41)), rock: 14 * Math.sin((6 * t) / P + 1) * (noise1((0.5 * t) / P + 5) + 1) }; };
 const ball = (t, hs, g) => { if (t <= 0) return 0; for (const h of hs) { const T2 = 2 * Math.sqrt((2 * h) / g); if (t < T2) { const v = (g * T2) / 2; return -(v * t - (g * t * t) / 2); } t -= T2; } return 0; };`;
 
 /** Each shape: its units, its MOTION fields (beyond periodS, leadS, stillAtS, maxStepS) and its valuesAt body over t, the time since the lead-in ended. */
@@ -367,6 +376,104 @@ const SHAPES: Record<LoopShape, { units: Record<string, string>; motion: string;
     motion: "fadePerCycle: 0.002",
     body: "return { o: 0.7 + 0.3 * Math.cos((2 * Math.PI * t) / MOTION.periodS) - (MOTION.fadePerCycle * t) / MOTION.periodS };",
     stillAt: 0,
+  },
+  // Motion that never comes to rest and never repeats (P scales its time): no loop, and no rest for it to pass.
+  // Two unrelated sines (6 px at 1.3 P plus 4 px at 2.1 P), the rules' own example of a float that is no loop.
+  floatSines: {
+    units: { x: "px" },
+    motion: "a: 6, b: 4, aP: 1.3, bP: 2.1",
+    body: "const P = MOTION.periodS; return { x: MOTION.a * Math.sin((2 * Math.PI * t) / (MOTION.aP * P)) + MOTION.b * Math.sin((2 * Math.PI * t) / (MOTION.bP * P)) };",
+    stillAt: 0.37,
+  },
+  // A float on smooth noise, in two directions.
+  floatNoise: {
+    units: { x: "px", y: "px" },
+    motion: "xPx: 40, yPx: 24, yRate: 1.3",
+    body: "const P = MOTION.periodS; return { x: MOTION.xPx * noise1(t / P), y: MOTION.yPx * noise1(t / (MOTION.yRate * P) + 31) };",
+    stillAt: 0.37,
+  },
+  // Wind on a treetop and a leaf.
+  windSway: {
+    units: { x: "px", y: "px", rock: "deg" },
+    motion: "size: 1",
+    body: "return wind(t, MOTION.periodS, MOTION.size);",
+    stillAt: 0.37,
+  },
+  // A breath of 10 P, longer than any loop: no loop, and its slow crests nearly hold.
+  floatSlow: {
+    units: { y: "px" },
+    motion: "yPx: 8, slowP: 10",
+    body: "return { y: MOTION.yPx * Math.sin((2 * Math.PI * t) / (MOTION.slowP * MOTION.periodS)) };",
+    stillAt: 0.37,
+  },
+  // A cloud on slow noise (6 P and 5 P): its gentle turns move less than the series' own stillness for 100 ms or so, a
+  // flat spot, not a rest.
+  slowCloud: {
+    units: { x: "px", y: "px" },
+    motion: "xA: 50, xR: 6, yA: 20, yR: 5",
+    body: "const M = MOTION, P = M.periodS; return { x: M.xA * noise1(t / (M.xR * P) + 2.3), y: M.yA * noise1(t / (M.yR * P) + 7.7) };",
+    stillAt: 0.37,
+  },
+  // A card that eases in 120 px with no overshoot, then floats 10 px: the ease must not make the float's turns read as holds.
+  easeIntoDrift: {
+    units: { x: "px" },
+    motion: "inPx: 120, inS: 0.8, driftPx: 10",
+    body: "const P = MOTION.periodS; return { x: MOTION.inPx * eout(t / MOTION.inS) + MOTION.driftPx * (noise1(t / (1.1 * P)) + 0.6 * noise1(t / (0.7 * P) + 9)) };",
+    stillAt: 3,
+  },
+  // A fault: the same ease into the drift, where at 5 s the drift holds for 150 ms (too short a hold to be a rest) and
+  // then swells 30 px and back over 0.8 s, a pulse that peaks 400 ms after it starts. The drift then goes on from there.
+  easeIntoDriftPulse: {
+    units: { x: "px" },
+    motion: "inPx: 120, inS: 0.8, driftPx: 10, atS: 5, holdS: 0.15, pulsePx: 30, pulseS: 0.8",
+    body: "const P = MOTION.periodS, M = MOTION, d = M.holdS + M.pulseS; const tau = t < M.atS ? t : t < M.atS + d ? M.atS : t - d; const p = clamp01((t - M.atS - M.holdS) / M.pulseS); return { x: M.inPx * eout(t / M.inS) + M.driftPx * (noise1(tau / (1.1 * P)) + 0.6 * noise1(tau / (0.7 * P) + 9)) + M.pulsePx * Math.sin(Math.PI * p) };",
+    stillAt: 3,
+  },
+  // A fault: easeIntoDriftPulse, where the 150 ms pause creeps 0.6 px/s (0.09 px in all, too little to see): to the
+  // eye it is a pause, and the slow pulse after it is a fault as after a true hold.
+  creepPauseDriftPulse: {
+    units: { x: "px" },
+    motion: "inPx: 120, inS: 0.8, driftPx: 10, atS: 5, holdS: 0.15, creepPxS: 0.6, pulsePx: 30, pulseS: 0.8",
+    body: "const P = MOTION.periodS, M = MOTION, d = M.holdS + M.pulseS; const tau = t < M.atS ? t : t < M.atS + d ? M.atS : t - d; const p = clamp01((t - M.atS - M.holdS) / M.pulseS); const creep = M.creepPxS * Math.min(Math.max(t - M.atS, 0), M.holdS); return { x: M.inPx * eout(t / M.inS) + M.driftPx * (noise1(tau / (1.1 * P)) + 0.6 * noise1(tau / (0.7 * P) + 9)) + creep + M.pulsePx * Math.sin(Math.PI * p) };",
+    stillAt: 3,
+  },
+  // A fault: an entrance that eases 60 px, pauses 150 ms creeping 0.3 px/s, then snaps the last 60 px in one frame: a
+  // pop. A slow drift follows it, from P s after load.
+  stutterIntoDrift: {
+    units: { x: "px" },
+    motion: "easePx: 60, easeS: 0.5, holdS: 0.15, creepPxS: 0.3, snapPx: 60, driftPx: 10",
+    body: "const P = MOTION.periodS, M = MOTION, h = M.easeS + M.holdS, c = M.creepPxS * M.holdS, e = t < M.easeS ? M.easePx * eout(t / M.easeS) : t < h ? M.easePx + M.creepPxS * (t - M.easeS) : M.easePx + c + (M.snapPx - c) * clamp01((t - h) * 60); const tau = Math.max(0, t - h - 1 / 60); return { x: e + M.driftPx * (noise1(tau / (1.1 * P)) + 0.6 * noise1(tau / (0.7 * P) + 9)) };",
+    stillAt: 3,
+  },
+  // A springy entrance 30% past 120 px into a creep of 6 px/s: the creep's trend is taken out, and the spring stands far past it.
+  springIntoCreep: {
+    units: { x: "px" },
+    motion: "toPx: 120, inShare: 0.6, os: 0.3, pxS: 6",
+    body: "return { x: MOTION.toPx * settle(t / (MOTION.inShare * MOTION.periodS), MOTION.os) + MOTION.pxS * t };",
+    stillAt: 3,
+  },
+  // Faults: a spring nobody caused that runs into a float, at load: it passes 60 px by 35%, far past where the float goes.
+  springIntoFloat: {
+    units: { x: "px" },
+    motion: "toPx: 60, inShare: 0.7, os: 0.35, floatPx: 3",
+    body: "const P = MOTION.periodS; return { x: MOTION.toPx * settle(t / (MOTION.inShare * P), MOTION.os) + MOTION.floatPx * noise1((1.3 * t) / P) };",
+    stillAt: 3,
+  },
+  // ...and into wind a fifth the size of windSway's.
+  springIntoWind: {
+    units: { x: "px", y: "px", rock: "deg" },
+    motion: "toPx: 50, inS: 0.8, os: 0.3, size: 0.2",
+    body: "const w = wind(t, MOTION.periodS, MOTION.size); return { ...w, x: MOTION.toPx * settle(t / MOTION.inS, MOTION.os) + w.x };",
+    stillAt: 3,
+  },
+  // A float that settles at 6.3 P to rest at 25 px, 40% past it, and holds: it comes to rest away from where it began
+  // (one that comes home is read as a shake), so it is judged as any move.
+  floatThenSettle: {
+    units: { x: "px" },
+    motion: "xPx: 40, stopShare: 6.3, restPx: 25, inShare: 0.8, os: 0.4",
+    body: `const P = MOTION.periodS, at = MOTION.stopShare * P, from = MOTION.xPx * noise1(at / P);
+      return { x: t < at ? MOTION.xPx * noise1(t / P) : from + (MOTION.restPx - from) * settle((t - at) / (MOTION.inShare * P), MOTION.os) };`,
+    stillAt: 8,
   },
   // A hop that settles past its rest, its period 2% longer each cycle: it never repeats.
   drift: {

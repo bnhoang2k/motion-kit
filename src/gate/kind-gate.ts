@@ -230,7 +230,14 @@ const LOOP_SCAN_MS = 15000;
 /** A value is a loop when it starts the same way 3 or more times, evenly spaced (within 1 frame). */
 const LOOP_STARTS = 3;
 
-type Onset = { name: string; i: number; ms: number; rising: boolean };
+/** `eps`, when set, is the still tolerance the onset was found by and is judged by (onsets' `wide`). */
+type Onset = { name: string; i: number; ms: number; rising: boolean; eps?: number };
+
+/**
+ * The still tolerance a value's starts are found by (`eps`), and, for an idle value that never rests (driftOf), the
+ * tolerance of its whole range (`wide`): a move after a hold of HOLD_MS or more by `wide` starts too, judged by `wide`.
+ */
+type StillRead = { eps: number; wide?: number };
 
 /** One 1/60 s frame that covers more than this share of a smooth start's whole change is a pop. */
 const POP_SHARE = 0.5;
@@ -240,27 +247,33 @@ const FLICK_FRAMES = 2;
 
 /**
  * Every place a value starts to move after holding still for 2 frame steps (the page counts as
- * still before its first frame), outside the windows (motion the input drives) and away from a cut.
+ * still before its first frame), outside the windows (motion the input drives) and away from a cut. With a `wide`
+ * tolerance (StillRead), a place it starts to move after holding still by `wide` for HOLD_MS or more starts too: a
+ * pause that creeps too slowly to see, which the tight tolerance of a drift reads as motion.
  */
-function onsets(frames: Frame[], windows: [number, number][], cuts: number[]): Onset[] {
+function onsets(frames: Frame[], windows: [number, number][], cuts: number[], tolOf: (name: string, v: number[]) => StillRead = (_, v) => ({ eps: stillTol(v) })): Onset[] {
   const out: Onset[] = [];
   const inWindow = (ms: number) => windows.some((w) => ms + FRAME_MS >= w[0] - 1e-6 && ms <= w[1] + 1e-6);
   for (const name of valueNames(frames)) {
     const v = series(frames, name);
-    const eps = stillTol(v);
-    const moving = (i: number) => i >= 0 && Math.abs(v[i + 1]! - v[i]!) > eps;
+    const { eps, wide } = tolOf(name, v);
+    const movingBy = (i: number, e: number) => i >= 0 && Math.abs(v[i + 1]! - v[i]!) > e;
+    const moving = (i: number) => movingBy(i, eps);
+    const holdSteps = Math.ceil(HOLD_MS / FRAME_MS - 1e-6);
+    const heldWide = (i: number) => wide !== undefined && movingBy(i, wide) && Array.from({ length: holdSteps }, (_, k) => i - 1 - k).every((j) => !movingBy(j, wide));
     const starts = new Set<number>();
     for (let i = 0; i + 1 < frames.length; i++) {
       // A start, or, while the value moves, the first frame step past the frames a cut leaves out (below): what
       // follows a cut is new motion.
       const afterCut = i > 0 && cuts.some((c) => frames[i - 1]!.ms <= c + 2 * FRAME_MS + 1e-6 && frames[i]!.ms > c + 2 * FRAME_MS + 1e-6);
-      if (!moving(i) || (!afterCut && (moving(i - 1) || moving(i - 2)))) continue;
+      const long = heldWide(i);
+      if (!long && (!moving(i) || (!afterCut && (moving(i - 1) || moving(i - 2))))) continue;
       const ms = frames[i]!.ms;
       if (inWindow(ms)) continue;
       if (!afterCut && cuts.some((c) => c >= ms - FRAME_MS && c <= ms + 2 * FRAME_MS)) continue;
       if (starts.has(i)) continue;
       starts.add(i);
-      out.push({ name, i, ms, rising: v[i + 1]! > v[i]! });
+      out.push({ name, i, ms, rising: v[i + 1]! > v[i]!, ...(long ? { eps: wide } : {}) });
     }
   }
   return out;
@@ -389,8 +402,7 @@ async function longestLegMs(page: GatePage, name: string, fromMs: number, toMs: 
  * change is below its unit's tolerance floor (TOLERANCE_FLOORS: 0.5 px, 0.002 scale, 0.01 opacity, ...) is too
  * small to see, so it has no problem: a spring or a smoothed scroll that snaps to rest at the end of a still stretch.
  */
-async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: string | undefined, isLoop: (o: Onset) => Promise<boolean>, stepped: boolean, caused = false, cuts: number[] = [], isDesigned: (o: Onset) => Promise<boolean> = isLoop, extent = false): Promise<string[]> {
-  const eps = stillTol(series(frames, o.name));
+async function onsetProblems(page: GatePage, frames: Frame[], o: Onset, unit: string | undefined, isLoop: (o: Onset) => Promise<boolean>, stepped: boolean, caused = false, cuts: number[] = [], isDesigned: (o: Onset) => Promise<boolean> = isLoop, extent = false, eps = stillTol(series(frames, o.name))): Promise<string[]> {
   const seg = segment(frames, o, eps, cuts);
   const at = `${o.name} at ${round(o.ms)} ms`;
   const out: string[] = [];
@@ -659,11 +671,21 @@ const envelope: KindRule = {
       const loop = await periodicFor(page, o.name, units[o.name]);
       return loop !== null && o.ms >= loop.leadMs - 1e-6;
     };
+    const stepped = new Set(ctx.stepped ?? []);
+    // On an idle page a value that never comes to rest is read by the stillness of its own motion after its lead-in
+    // (driftOf), as the overshoot rule reads it: a big ease or spring at load would widen the whole series' tolerance
+    // until a slow drift's gentle turns read as holds, and each turn as a slow pulse.
+    // A pause in it that creeps too slowly to see still holds by the whole range's tolerance (onsets' `wide`).
+    const tolOf = (name: string, v: number[], fs: Frame[]): StillRead => {
+      if (ctx.kind !== "idle" || units[name] === "opacity" || stepped.has(name)) return { eps: stillTol(v) };
+      const drift = driftOf(fs, v);
+      return drift.endless ? { eps: drift.tol, wide: stillTol(v) } : { eps: stillTol(v) };
+    };
     const isLoop = async (o: Onset) => {
       if (await isDesigned(o)) return true;
       if (!long) {
         const lf = await page.frames(0, LOOP_SCAN_MS);
-        long = onsets(lf, await envelopeWindows(page, lf, ctx), ctx.cuts);
+        long = onsets(lf, await envelopeWindows(page, lf, ctx), ctx.cuts, (n, v) => tolOf(n, v, lf));
       }
       const starts = long.filter((x) => x.name === o.name && x.rising === o.rising).map((x) => x.ms);
       if (starts.length < LOOP_STARTS) return false;
@@ -673,7 +695,6 @@ const envelope: KindRule = {
     const windows = await envelopeWindows(page, frames, ctx);
     const caused = isCaused(ctx) ? await exemptWindows(page, frames, ctx) : [];
     const extentSteps = await checkedExtents(page, ctx);
-    const stepped = new Set(ctx.stepped ?? []);
     const reported = new Set(valueNames(frames));
     const objects = stepped.size > 0 ? (await page.state()).objects : {};
     const inputLeads = stepped.size > 0 && !isCaused(ctx) && ctx.input ? await (await KIND_RULES[ctx.kind]?.())?.inputLeads?.(page, ctx) : undefined;
@@ -699,10 +720,11 @@ const envelope: KindRule = {
     }
     // A checked extent is read as its parts moved it: the jump of who is in its union, as a part comes back or goes gone, is left out.
     const read = byMotion(frames, extentSteps);
-    for (const o of onsets(read, windows, ctx.cuts)) {
+    const tols = new Map(valueNames(read).map((n) => [n, tolOf(n, series(read, n), read)] as const));
+    for (const o of onsets(read, windows, ctx.cuts, (n) => tols.get(n)!)) {
       if (flagged.has(o.name) || o.ms > spanOf(ctx) + 1e-6) continue;
       const inCause = caused.some((w) => o.ms + FRAME_MS >= w[0] - 1e-6 && o.ms <= w[1] + 1e-6);
-      const problems = await onsetProblems(page, read, o, units[o.name], isLoop, stepped.has(o.name), inCause, ctx.cuts, isDesigned, extentSteps.has(o.name));
+      const problems = await onsetProblems(page, read, o, units[o.name], isLoop, stepped.has(o.name), inCause, ctx.cuts, isDesigned, extentSteps.has(o.name), o.eps ?? tols.get(o.name)!.eps);
       if (problems.length > 0) {
         flagged.add(o.name);
         out.push(...problems.map((p) => `envelope: ${p}`));
@@ -758,7 +780,7 @@ export function heldDrawings(raw: number[]): Set<number> {
  * - Otherwise each turn that passes the stop, in the move's direction, by more than `floor` and more than 2% of the
  *   move, overshoots it: by how far it passes, against the move from its start to its stop.
  */
-type Overshoot = { ms: number; by: number; move: number };
+type Overshoot = { ms: number; by: number; move: number; x: number };
 
 function judgeChain(levels: Level[], held: boolean, floor: number, allow: (hit: Overshoot) => boolean, returns = true): Overshoot | null {
   const n = levels.length;
@@ -803,25 +825,69 @@ function judgeChain(levels: Level[], held: boolean, floor: number, allow: (hit: 
       // Held at its start, a move that peaks within PULSE_PEAK_MS is pulses (an opacity value's never is: it never
       // passes where it rests).
       if (b === n - 1 && returns && first.ms - s.ms <= PULSE_PEAK_MS) continue;
-      for (const l of inner.slice(1)) if (d * (l.x - s.x) > need && (!hit || d * (l.x - s.x) > hit.by)) hit = { ms: l.ms, by: d * (l.x - s.x), move: toFirst };
+      for (const l of inner.slice(1)) if (d * (l.x - s.x) > need && (!hit || d * (l.x - s.x) > hit.by)) hit = { ms: l.ms, by: d * (l.x - s.x), move: toFirst, x: l.x };
     } else {
       const total = Math.abs(r.x - s.x);
       const d = Math.sign(r.x - s.x);
       const pulse = toFirst >= reach - 1e-9 && first.ms - s.ms <= PULSE_PEAK_MS && Math.sign(first.x - s.x) * (r.x - s.x) <= PULSE_RETURN * toFirst;
       if (pulse) continue;
       const need = Math.max(floor, OVERSHOOT_SHARE * total);
-      for (const l of inner) if (d * (l.x - r.x) > need && (!hit || d * (l.x - r.x) > hit.by)) hit = { ms: l.ms, by: d * (l.x - r.x), move: total };
+      for (const l of inner) if (d * (l.x - r.x) > need && (!hit || d * (l.x - r.x) > hit.by)) hit = { ms: l.ms, by: d * (l.x - r.x), move: total, x: l.x };
     }
     if (hit && !allow(hit)) return hit;
   }
   return null;
 }
 
-function overshootIn(frames: Frame[], v: number[], floor: number, eps: number, skip: (ms: number) => boolean, allow: (hit: Overshoot) => boolean = () => false, holdAt: Set<number> = new Set(), returns = true): Overshoot | null {
+/**
+ * A value that never comes to rest (wind, water, a float of two sines) has no rest to pass. It never comes to rest when,
+ * once it first moves, it never holds still for ENDLESS_HOLD_MS: a slow float's gentle turn holds still by the series'
+ * own tolerance for 100 ms or so, and is no rest. ENDLESS_SLACK: in the first LOOP_LEAD_MS of such a run, a turn may
+ * pass the range the run covers after it, its linear trend taken out (a cloud that drifts one way), by this share of
+ * that range, as an early gust may; past that it is judged as a spring at load that runs into the drift.
+ * ENDLESS_MIN_MS: the run must go on this long past its lead-in for that range to say anything.
+ */
+export const ENDLESS_SLACK = 0.25;
+export const ENDLESS_MIN_MS = 2000;
+export const ENDLESS_HOLD_MS = 300;
+
+/**
+ * The still tolerance of `v` (the series of `frames`) after its lead-in, LOOP_LEAD_MS past its first move, and whether
+ * it never comes to rest read by that tolerance (neverRests). A big ease or spring at load widens the whole series'
+ * tolerance (stillTol) until a slow drift's gentle turns would read as holds; this one is the drift's own.
+ */
+export function driftOf(frames: Frame[], v: number[]): { tol: number; endless: boolean } {
+  const moved = v.findIndex((x) => Math.abs(x - v[0]!) > stillTol(v));
+  const from = moved < 0 ? -1 : frames.findIndex((f) => f.ms >= frames[moved]!.ms + LOOP_LEAD_MS - 1e-6);
+  const tol = from > 0 && v.length - from > 1 ? stillTol(v.slice(from)) : stillTol(v);
+  return { tol, endless: neverRests(v, tol) };
+}
+
+/** Whether `v` never holds still (steps within `eps`) for ENDLESS_HOLD_MS once it first moves. */
+export function neverRests(v: number[], eps: number): boolean {
+  const steps = Math.ceil(ENDLESS_HOLD_MS / FRAME_MS - 1e-6);
+  const first = v.findIndex((x) => Math.abs(x - v[0]!) > eps);
+  if (first < 0) return false;
+  let still = 0;
+  for (let i = first + 1; i < v.length; i++) {
+    still = Math.abs(v[i]! - v[i - 1]!) <= eps ? still + 1 : 0;
+    if (still >= steps) return false;
+  }
+  return true;
+}
+
+/**
+ * The first overshoot in `v`. With `endless` (a value that never rests, neverRests), a hold ends a chain only after
+ * ENDLESS_HOLD_MS, and the run the frames end on, when it goes on ENDLESS_MIN_MS past its lead-in, is no move to a rest:
+ * its turns are not judged, but those in its lead-in that pass outside the range it covers after the lead-in (its
+ * linear trend taken out, and widened by ENDLESS_SLACK of that range).
+ */
+function overshootIn(frames: Frame[], v: number[], floor: number, eps: number, skip: (ms: number) => boolean, allow: (hit: Overshoot) => boolean = () => false, holdAt: Set<number> = new Set(), returns = true, endless = false): Overshoot | null {
   let levels: Level[] = [];
   let cur: Leg | null = null;
+  let runFrom = 0;
   let still = 0;
-  const holdSteps = Math.ceil(HOLD_MS / FRAME_MS - 1e-6);
+  const holdSteps = Math.ceil((endless ? ENDLESS_HOLD_MS : HOLD_MS) / FRAME_MS - 1e-6);
   const leg = (s: number, d: number, startMs: number, extI: number, ext = s, extMs = startMs): Leg => ({ s, ext, d, startMs, extMs, extI, vmax: 0, dip: null });
   // A turn's frame can miss its true extreme by up to the frame step beside it.
   const slopAt = (k: number) => Math.max(k > 0 ? Math.abs(v[k]! - v[k - 1]!) : 0, k + 1 < v.length ? Math.abs(v[k + 1]! - v[k]!) : 0);
@@ -835,13 +901,35 @@ function overshootIn(frames: Frame[], v: number[], floor: number, eps: number, s
   /** Judge the chain that ends at level `x` at `ms`, held there or cut off. */
   const close = (x: number, ms: number, held: boolean): Overshoot | null => {
     if (cur && cur.d !== 0 && Math.abs(cur.ext - x) > eps && cur.extMs < ms) levels.push(turn(cur));
-    return judgeChain([...levels, { x, ms, soft: false }], held, floor, allow, returns);
+    return judgeChain([...levels, { x, ms, soft: false }], held, floor, held ? allow : endlessAllow(ms), returns);
+  };
+  /** For the run the frames cut off at `endMs`: what `allow` allows, and, when the run never rests, its turns but early ones out of range. */
+  const endlessAllow = (endMs: number): ((hit: Overshoot) => boolean) => {
+    const leadEnd = frames[runFrom]!.ms + LOOP_LEAD_MS;
+    if (!endless || endMs - leadEnd < ENDLESS_MIN_MS - 1e-6) return allow;
+    const at = frames.map((f, i) => i).filter((i) => i >= runFrom && frames[i]!.ms >= leadEnd - 1e-6);
+    // The run's linear trend after its lead-in (least squares), and how far it strays from it.
+    const n = at.length;
+    const mt = at.reduce((sum, i) => sum + frames[i]!.ms, 0) / n;
+    const mv = at.reduce((sum, i) => sum + v[i]!, 0) / n;
+    let sxy = 0;
+    let sxx = 0;
+    for (const i of at) {
+      sxy += (frames[i]!.ms - mt) * (v[i]! - mv);
+      sxx += (frames[i]!.ms - mt) ** 2;
+    }
+    const slope = sxx > 0 ? sxy / sxx : 0;
+    const off = (ms: number, x: number) => x - (mv + slope * (ms - mt));
+    const strays = at.map((i) => off(frames[i]!.ms, v[i]!));
+    const [lo, hi] = [Math.min(...strays), Math.max(...strays)];
+    const slack = Math.max(floor, ENDLESS_SLACK * (hi - lo));
+    return (hit) => allow(hit) || hit.ms >= leadEnd - 1e-6 || (off(hit.ms, hit.x) >= lo - slack && off(hit.ms, hit.x) <= hi + slack);
   };
   for (let i = 0; i < frames.length; i++) {
     const ms = frames[i]!.ms;
     const x = v[i]!;
     if (skip(ms)) { levels = []; cur = null; still = 0; continue; }
-    if (cur === null) { cur = leg(x, 0, ms, i); levels = [{ x, ms, soft: false }]; continue; }
+    if (cur === null) { cur = leg(x, 0, ms, i); levels = [{ x, ms, soft: false }]; runFrom = i; continue; }
     const step = Math.abs(x - v[i - 1]!);
     const wasStill = still;
     still = step > eps ? 0 : still + 1;
@@ -850,6 +938,7 @@ function overshootIn(frames: Frame[], v: number[], floor: number, eps: number, s
       if (hit) return hit;
       cur = leg(x, 0, ms, i);
       levels = [{ x, ms, soft: false }];
+      runFrom = i;
       continue;
     }
     if (cur.d === 0) {
@@ -963,7 +1052,11 @@ const overshoot: KindRule = {
       const starter = born === null ? undefined : (ctx.causes ?? causesOf(ctx.input)).filter((c) => c.kind !== "load" && c.startMs <= born + 2 * FRAME_MS + 1e-6).pop();
       const lead: [number, number][] = loop && starter ? [[starter.startMs, loop.leadMs]] : [];
       const skip = (ms: number) => nearCut(ms) || (opacity ? opacityWins : [...wins, ...lead]).some((w) => ms >= w[0] - FRAME_MS - 1e-6 && ms <= w[1] + 1e-6);
-      const hit = overshootIn(frames, v, floor, stillTol(v), skip, undefined, holdAt, !opacity);
+      // On an idle page a value that is no loop and never comes to rest has no rest to pass (overshootIn's `endless`),
+      // read against the stillness of its own motion after its lead-in (driftOf).
+      const { tol: driftTol, endless: never } = driftOf(frames, v);
+      const endless = ctx.kind === "idle" && !opacity && !loop && never;
+      const hit = overshootIn(frames, v, floor, endless ? driftTol : stillTol(v), skip, undefined, holdAt, !opacity, endless);
       if (!hit) continue;
       const passes = `overshoot: ${name} passes its rest by ${round(hit.by)} at ${round(hit.ms)} ms`;
       // A designed loop may settle past its rest by up to LOOP_OVERSHOOT of its move, when each cycle holds still.

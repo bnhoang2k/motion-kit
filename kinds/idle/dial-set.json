@@ -1,3 +1,22 @@
 [
-  { "name": "idle.period", "unit": "s", "meaning": "The length of one loop." }
+  {
+    "name": "idle.period",
+    "unit": "s",
+    "meaning": "The length of one loop."
+  },
+  {
+    "name": "idle.windStrength",
+    "unit": "m",
+    "meaning": "How far the wind sways a body at its most flexible point."
+  },
+  {
+    "name": "idle.windSpeed",
+    "unit": "1/s",
+    "meaning": "How fast gusts travel through a scene, in gust sizes a second."
+  },
+  {
+    "name": "idle.leafFlutter",
+    "unit": "rad",
+    "meaning": "How far a small part (a leaf, a petal) rocks in the wind on its own."
+  }
 ]

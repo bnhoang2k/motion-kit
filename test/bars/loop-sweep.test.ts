@@ -219,3 +219,47 @@ describe.concurrent("the style sweep: drift under the floor each period", () => 
     expect(await loopsOf(spec)).toHaveLength(1);
   });
 });
+
+/**
+ * Idle motion that never comes to rest and never repeats (wind, water, a float of two sines or of noise) is no loop and
+ * has no rest to pass: the overshoot rule leaves its turns alone. Only a turn in its first 2 s that goes far past where
+ * it goes after (more than a quarter of that range) is judged, as a spring at load that runs into the drift. Each shape
+ * runs at three time scales. A float that settles and holds is judged as any move.
+ */
+describe.concurrent("the style sweep: idle motion that never settles", () => {
+  const honestSpecs: LoopSpec[] = [0.6, 1, 1.7].flatMap((periodS) =>
+    (["floatSines", "floatNoise", "windSway"] as const).map((shape) => ({ shape, periodS, leadS: 0 })),
+  );
+  honestSpecs.push(
+    { shape: "floatSlow", periodS: 1, leadS: 0 },
+    { shape: "windSway", periodS: 1, leadS: 0.4 },
+    { shape: "slowCloud", periodS: 0.67, leadS: 0 },
+    { shape: "slowCloud", periodS: 1, leadS: 0 },
+  );
+  it.each(honestSpecs.map((s) => [loopSlug(s), s] as const))("%s passes", async (_, spec) => {
+    const v = await kindGate(writeLoopPage(root, spec));
+    expect(v.failures).toEqual([]);
+  });
+
+  // A float after an ease at load: the ease must not make its turns read as holds (overshoot) or as slow pulses
+  // (envelope). The same float with a real slow pulse after a short hold still fails the envelope.
+  it.each([0.6, 1, 1.5].map((periodS) => [loopSlug({ shape: "easeIntoDrift", periodS, leadS: 0 }), periodS] as const))("%s passes", async (_, periodS) => {
+    const v = await kindGate(writeLoopPage(root, { shape: "easeIntoDrift", periodS, leadS: 0 }));
+    expect(v.failures).toEqual([]);
+  });
+
+  // A pause that creeps too slowly to see is still a pause: the pulse or snap after it fails, as after a true hold.
+  const envelopeFaults = [0.6, 1, 1.5].flatMap((periodS) => (["easeIntoDriftPulse", "creepPauseDriftPulse", "stutterIntoDrift"] as const).map((shape) => ({ shape, periodS, leadS: 0 })));
+  it.each(envelopeFaults.map((s) => [loopSlug(s), s] as const))("%s fails envelope", async (_, spec) => {
+    const v = await kindGate(writeLoopPage(root, spec));
+    expect(failing(v)).toContain("envelope");
+  });
+
+  const faultySpecs: LoopSpec[] = [0.6, 1, 1.5].flatMap((periodS) =>
+    (["springIntoFloat", "springIntoWind", "floatThenSettle", "springIntoCreep"] as const).map((shape) => ({ shape, periodS, leadS: 0 })),
+  );
+  it.each(faultySpecs.map((s) => [loopSlug(s), s] as const))("%s fails overshoot", async (_, spec) => {
+    const v = await kindGate(writeLoopPage(root, spec));
+    expect(failing(v)).toContain("overshoot");
+  });
+});

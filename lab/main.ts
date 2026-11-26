@@ -112,8 +112,12 @@ function renderMoments(): void {
   );
 }
 
+/** Repaints a lane's numbers after an edit. Keyed by lane name, rebuilt with the lanes. */
+const laneLabels = new Map<string, () => void>();
+
 function renderLanes(): void {
   players.clear();
+  laneLabels.clear();
   $("lanes").replaceChildren(
     ...allFeels().map(([name, feel, editable]) => {
       const lane = document.createElement("div");
@@ -122,8 +126,17 @@ function renderLanes(): void {
       const label = document.createElement("div");
       label.className = "name";
       label.dataset.uiAlignItem = "";
-      label.textContent = name;
-      label.append(Object.assign(document.createElement("small"), { textContent: editable ? feel.describe : "preview only — not yet a saved feel" }));
+      const small = document.createElement("small");
+      const paintLabel = () => {
+        const mv = feel.moves[move];
+        const text = `${mv.visualDuration.toFixed(2)} s`;
+        const detail = `bounce ${mv.bounce.toFixed(2)}${editable ? "" : " · preview only"}`;
+        label.replaceChildren(text, small);
+        small.textContent = detail;
+        lane.setAttribute("aria-label", `${move}: ${text}, ${detail}`);
+      };
+      laneLabels.set(name, paintLabel);
+      paintLabel();
       const stage = document.createElement("div");
       stage.className = "stage";
       const player = moments.get(move)!.mount(stage);
@@ -157,11 +170,12 @@ function renderEditor(): void {
         return;
       }
       refresh();
+      laneLabels.get(entry[0])?.();
       dirty = true;
       status("Unsaved changes.");
     },
     (text) => {
-      void navigator.clipboard.writeText(text).then(() => status(`Copied: ${text}`));
+      void navigator.clipboard.writeText(text).then(() => status("Copied reference."));
     },
   );
 }

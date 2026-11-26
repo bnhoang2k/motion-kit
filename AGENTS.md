@@ -27,7 +27,9 @@ is that it looks good and people see it often, drop the motion. Carry on with th
 
 ## 3. Check the reference examples
 
-Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each moment.
+Open `node_modules/motion-kit/bars/INDEX.md` and read the section for each moment. A moment with
+no section has no reference example: take the Build path for it. Some versions ship no reference
+examples at all, and then the index says so.
 
 ## 4. Take one path per moment
 

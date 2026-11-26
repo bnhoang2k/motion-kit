@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -16,6 +16,12 @@ export const HEADER = [
   "",
   "One section per moment that has a bar. Superseded bars are left out.",
 ].join("\n");
+
+/** What the index says when it lists no bar, so a reader knows no example ships and takes the Build path. */
+export const EMPTY = "No bar ships in this copy yet. For every moment, take the Build path in AGENTS.md.";
+
+/** The files each listed bar must ship. The same list as BAR_FILES in src/core/bar.ts; AGENTS.md's Copy path reads them. */
+export const SHIPPED_FILES = ["index.html", "bar.json", "notes.md", "trace.json"];
 
 /** Every bar.json under `root`/bars, in folder-name order. Folders with no bar.json are skipped. */
 export function readBars(root = ROOT) {
@@ -64,7 +70,25 @@ export function render(bars, moments) {
       ...rows.map((b) => `| [${b.slug}](${b.slug}/index.html) | ${cell(b.kinds.join(", "))} | ${rung(b.rung)} | ${cell(b.feel)} | ${cell(b.fits)} | ${cell(b.wrongFor)} | \`bars/${b.slug}/\` |`),
     );
   }
+  if (out.length === 1) out.push("", EMPTY);
   return `${out.join("\n")}\n`;
+}
+
+/** The slugs an INDEX.md text links to, in the order it lists them, each once. */
+export function listedSlugs(text) {
+  return [...new Set([...text.matchAll(/^\| \[([^\]]+)\]\(\1\/index\.html\) \|/gm)].map((m) => m[1]))];
+}
+
+/**
+ * Each `bars/<slug>/<file>` missing under `root`, for every bar that bars/INDEX.md links and every bar folder
+ * present (a folder with no bar.json drops out of the index, so the index alone would miss it). Empty when every
+ * bar ships its files.
+ */
+export function missingBarFiles(root = ROOT) {
+  const dir = path.join(root, "bars");
+  const folders = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  const slugs = [...new Set([...listedSlugs(readFileSync(path.join(dir, "INDEX.md"), "utf8")), ...folders])].sort();
+  return slugs.flatMap((slug) => SHIPPED_FILES.map((f) => `bars/${slug}/${f}`).filter((rel) => !existsSync(path.join(root, rel))));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -5,7 +5,7 @@ import { tx } from "../src/core/tx.ts";
 import type { MotionConfig } from "../src/core/types.ts";
 import { browserScheduler, tween, type Scheduler, type Tween } from "../src/three/index.ts";
 
-/** `feel` is the selected lane. A lane with no engine numbers (a preview-only candidate) plays sleek, and the rows say so. */
+/** `feel` is the selected lane. A lane with no engine numbers (a preview-only candidate) plays a saved lane, and the rows say so. */
 interface Opts { cfg: MotionConfig; feel: () => string; reduced: () => boolean }
 
 /** Adds one engine row. Returns its note, so the caller can update it. */
@@ -100,7 +100,7 @@ export function mountEngines(root: HTMLElement, opts: Opts): { play(byTouch: boo
     play(byTouch) {
       const asked = opts.feel();
       const feel = Object.hasOwn(opts.cfg.feels, asked) ? asked : Object.hasOwn(opts.cfg.feels, "sleek") ? "sleek" : Object.keys(opts.cfg.feels)[0]!;
-      const suffix = feel === asked ? "" : ` · plays ${feel}, not ${asked}`;
+      const suffix = feel === asked ? "" : " · no engine numbers for this lane, plays a saved one";
       domNote.textContent = notes.dom + suffix;
       threeNote.textContent = notes.three + suffix;
       clipNote.textContent = notes.clip + suffix;
@@ -123,7 +123,7 @@ export function mountEngines(root: HTMLElement, opts: Opts): { play(byTouch: boo
       void loadClip(feel, byTouch).then((c) => {
         if (mine !== seq) return; // a newer tap owns the clip now
         if (!c) {
-          clipNote.textContent = "No sample for this feel" + suffix;
+          clipNote.textContent = "No sample for these numbers" + suffix;
           return;
         }
         mixer.stopAllAction();

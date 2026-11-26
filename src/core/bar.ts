@@ -138,7 +138,7 @@ interface DialsEntry { knob?: unknown; bar?: unknown; path?: unknown; value?: un
 
 
 /** The four files every bar folder holds. */
-const BAR_FILES = ["index.html", "bar.json", "notes.md", "trace.json"] as const;
+export const BAR_FILES = ["index.html", "bar.json", "notes.md", "trace.json"] as const;
 
 interface BarFiles {
   html: string | undefined;

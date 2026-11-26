@@ -27,6 +27,7 @@ import { writeJumpPage } from "./jump-pages.ts";
 import { flingPage, loadLoopPage, scrollKickPage, type LoadLoop } from "./creep-pages.ts";
 import { tapLoopPage, type TapLoop as TapLoopSpec } from "./loop-tap-pages.ts";
 import { bob, cards, type Piece, pill, restLines, ruleLines, rulesOn, slowFade, stallsPage, toast, tracksPage, type Track } from "./rest-pages.ts";
+import { writeLoopPage } from "./loop-pages.ts";
 import "./sweep-priority.ts";
 import { BOTH, bodyPage, ringPage } from "./extent-pages.ts";
 
@@ -2639,5 +2640,43 @@ describe.concurrent("a value that is an edge of many moving parts (trace.json ex
     const v = await kindGate(ringPage(root, { pop: true }));
     expect(v.failures).toEqual(expect.arrayContaining([expect.stringMatching(/^envelope: top at [\d.]+ ms covers \d+% of its whole change in the one frame after [\d.]+ ms; that is a pop$/)]));
     expect(failing(v)).not.toContain("extents");
+  });
+});
+
+// An idle value that never comes to rest (wind on a treetop) has no rest to pass, so overshoot leaves its turns alone. A
+// spring at load that runs into the same kind of drift still fails: its swing in the first 2 s goes far past where the
+// drift goes after (loop-pages.ts; the style sweep is in loop-sweep.test.ts).
+describe.concurrent("overshoot: an idle value that never settles (loop-pages.ts)", { timeout: 120_000 }, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "motion-kit-endless-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it("wind on a treetop and a leaf passes every rule", async () => {
+    const v = await kindGate(writeLoopPage(root, { shape: "windSway", periodS: 1, leadS: 0 }));
+    expect(v.failures).toEqual([]);
+  });
+
+  it("a spring at load that runs into a float fails overshoot, at its swing past 60 px", async () => {
+    const v = await kindGate(writeLoopPage(root, { shape: "springIntoFloat", periodS: 1, leadS: 0 }));
+    expect(v.failures).toEqual(expect.arrayContaining([expect.stringMatching(/^overshoot: x passes its rest by [\d.]+ at [\d.]+ ms and comes back; only motion a person caused may overshoot$/)]));
+  });
+});
+
+describe.concurrent("envelope: an ease at load into a drift that never settles (loop-pages.ts)", { timeout: 120_000 }, () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "motion-kit-endless-env-"));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  it("an ease at load into a slow drift passes every rule: its turns are no slow pulses", async () => {
+    const v = await kindGate(writeLoopPage(root, { shape: "easeIntoDrift", periodS: 1, leadS: 0 }));
+    expect(v.failures).toEqual([]);
+  });
+
+  it("a slow pulse after a short hold in that drift fails envelope, at its start", async () => {
+    const v = await kindGate(writeLoopPage(root, { shape: "easeIntoDriftPulse", periodS: 1, leadS: 0 }));
+    expect(v.failures).toEqual(expect.arrayContaining([expect.stringMatching(/^envelope: x at 51[5-6]\d(\.\d+)? ms is a pulse that peaks (39\d|40\d) ms after it starts; a pulse's attack is 40 to 120 ms$/)]));
+  });
+
+  it("an entrance that pauses with a creep too slow to see, then snaps, fails envelope as a pop", async () => {
+    const v = await kindGate(writeLoopPage(root, { shape: "stutterIntoDrift", periodS: 1, leadS: 0 }));
+    expect(v.failures).toEqual(expect.arrayContaining([expect.stringMatching(/^envelope: x at 6[45]\d(\.\d+)? ms covers \d+% of its whole change in the one frame after [\d.]+ ms; that is a pop$/)]));
   });
 });
